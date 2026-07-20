@@ -1,0 +1,609 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Nexus brand extension tokens */
+  --color-nexus-bg: var(--nexus-bg);
+  --color-nexus-surface: var(--nexus-surface);
+  --color-nexus-surface-2: var(--nexus-surface-2);
+  --color-nexus-border: var(--nexus-border);
+  --color-nexus-purple: var(--nexus-purple);
+  --color-nexus-purple-dim: var(--nexus-purple-dim);
+  --color-nexus-violet: var(--nexus-violet);
+  --color-nexus-teal: var(--nexus-teal);
+  --color-nexus-amber: var(--nexus-amber);
+  --color-nexus-success: var(--nexus-success);
+  --color-nexus-warning: var(--nexus-warning);
+  --color-nexus-error: var(--nexus-error);
+  --color-dev: var(--nexus-purple);
+  --color-problem: var(--nexus-amber);
+  --color-learning: var(--nexus-teal);
+}
+
+/* --------------------------------------------------------------------
+   LIGHT THEME (default -- :root)
+   Soft lavender-white with purple accents. Same brand identity.
+   -------------------------------------------------------------------- */
+:root {
+  --radius: 0.75rem;
+
+  --background: oklch(0.985 0.005 290);          /* near-white with purple tint */
+  --foreground: oklch(0.18 0.03 290);            /* deep ink */
+  --card: oklch(1 0 0);                          /* pure white card */
+  --card-foreground: oklch(0.18 0.03 290);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.03 290);
+  --primary: oklch(0.55 0.24 295);               /* deeper purple for contrast on white */
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.95 0.015 290);
+  --secondary-foreground: oklch(0.30 0.04 290);
+  --muted: oklch(0.95 0.012 290);
+  --muted-foreground: oklch(0.50 0.03 290);
+  --accent: oklch(0.93 0.03 295);
+  --accent-foreground: oklch(0.25 0.06 295);
+  --destructive: oklch(0.58 0.24 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.90 0.015 290);
+  --input: oklch(0.95 0.012 290);
+  --ring: oklch(0.55 0.24 295);
+  --chart-1: oklch(0.55 0.24 295);
+  --chart-2: oklch(0.65 0.18 200);
+  --chart-3: oklch(0.75 0.18 60);
+  --chart-4: oklch(0.60 0.20 145);
+  --chart-5: oklch(0.65 0.22 340);
+  --sidebar: oklch(0.97 0.008 290);
+  --sidebar-foreground: oklch(0.30 0.04 290);
+  --sidebar-primary: oklch(0.55 0.24 295);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.93 0.03 295);
+  --sidebar-accent-foreground: oklch(0.25 0.06 295);
+  --sidebar-border: oklch(0.90 0.015 290);
+  --sidebar-ring: oklch(0.55 0.24 295);
+
+  /* Nexus brand tokens -- light */
+  --nexus-bg: #faf9fc;
+  --nexus-surface: #ffffff;
+  --nexus-surface-2: #f3f1fa;
+  --nexus-border: #e6e2f0;
+  --nexus-purple: #7c3aed;        /* darker purple for contrast on white */
+  --nexus-purple-dim: #a78bfa;
+  --nexus-violet: #8b5cf6;
+  --nexus-teal: #0d9488;
+  --nexus-amber: #d97706;
+  --nexus-success: #16a34a;
+  --nexus-warning: #d97706;
+  --nexus-error: #dc2626;
+
+  /* Mode chip text colors for light mode */
+  --mode-dev-text: #6d28d9;
+  --mode-problem-text: #b45309;
+  --mode-learning-text: #0f766e;
+}
+
+/* --------------------------------------------------------------------
+   DARK THEME (.dark class on <html>)
+   -------------------------------------------------------------------- */
+.dark {
+  --background: oklch(0.13 0.02 290);          /* #0d0b14 dark navy-purple */
+  --foreground: oklch(0.96 0.01 280);          /* near white */
+  --card: oklch(0.17 0.03 290);                /* #1a1424 raised surface */
+  --card-foreground: oklch(0.96 0.01 280);
+  --popover: oklch(0.17 0.03 290);
+  --popover-foreground: oklch(0.96 0.01 280);
+  --primary: oklch(0.62 0.22 295);             /* #a855f7 purple */
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.22 0.04 290);
+  --secondary-foreground: oklch(0.85 0.02 280);
+  --muted: oklch(0.20 0.03 290);
+  --muted-foreground: oklch(0.65 0.03 285);
+  --accent: oklch(0.27 0.06 295);
+  --accent-foreground: oklch(0.96 0.01 280);
+  --destructive: oklch(0.62 0.24 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.27 0.03 290);
+  --input: oklch(0.20 0.03 290);
+  --ring: oklch(0.62 0.22 295);
+  --chart-1: oklch(0.62 0.22 295);
+  --chart-2: oklch(0.7 0.18 200);
+  --chart-3: oklch(0.75 0.18 60);
+  --chart-4: oklch(0.65 0.20 145);
+  --chart-5: oklch(0.7 0.22 340);
+  --sidebar: oklch(0.10 0.02 290);
+  --sidebar-foreground: oklch(0.85 0.02 280);
+  --sidebar-primary: oklch(0.62 0.22 295);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.20 0.04 290);
+  --sidebar-accent-foreground: oklch(0.96 0.01 280);
+  --sidebar-border: oklch(0.22 0.03 290);
+  --sidebar-ring: oklch(0.62 0.22 295);
+
+  /* Nexus brand tokens -- dark */
+  --nexus-bg: #0a0813;
+  --nexus-surface: #14101f;
+  --nexus-surface-2: #1c1730;
+  --nexus-border: #2a2245;
+  --nexus-purple: #9d4edd;
+  --nexus-purple-dim: #6b2fa3;
+  --nexus-violet: #a855f7;
+  --nexus-teal: #2dd4bf;
+  --nexus-amber: #f59e0b;
+  --nexus-success: #22c55e;
+  --nexus-warning: #f59e0b;
+  --nexus-error: #ef4444;
+
+  --mode-dev-text: #d3b3ff;
+  --mode-problem-text: #ffd591;
+  --mode-learning-text: #99f6e4;
+}
+
+@layer inline {
+  html, body {
+    background: var(--nexus-bg);
+    color: var(--foreground);
+    transition: background-color 200ms ease, color 200ms ease;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--nexus-purple) 25%, transparent);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--nexus-purple) 45%, transparent); }
+
+/* Background gradient glow -- adapts to theme */
+.nexus-bg-aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 50% 35% at 15% -10%, color-mix(in srgb, var(--nexus-purple) 18%, transparent) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 30% at 90% 0%, color-mix(in srgb, var(--nexus-violet) 10%, transparent) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 50% 110%, color-mix(in srgb, var(--nexus-teal) 6%, transparent) 0%, transparent 60%);
+}
+
+/* Glass card -- theme-aware via surface tokens */
+.nexus-glass {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--nexus-surface-2) 75%, transparent) 0%,
+    color-mix(in srgb, var(--nexus-surface) 88%, transparent) 100%);
+  backdrop-filter: blur(12px);
+  border: 1px solid color-mix(in srgb, var(--nexus-purple) 18%, transparent);
+}
+
+.nexus-glass-subtle {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--nexus-surface-2) 50%, transparent) 0%,
+    color-mix(in srgb, var(--nexus-surface) 70%, transparent) 100%);
+  border: 1px solid color-mix(in srgb, var(--nexus-purple) 12%, transparent);
+}
+
+/* Subtle pulse */
+@keyframes nexus-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.nexus-pulse { animation: nexus-pulse 2s ease-in-out infinite; }
+
+/* Shimmer for streaming */
+@keyframes nexus-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.nexus-shimmer {
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--nexus-purple) 40%, transparent) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: nexus-shimmer 1.6s linear infinite;
+}
+
+/* Streaming caret */
+.nexus-caret::after {
+  content: "▌";
+  margin-left: 2px;
+  color: var(--nexus-purple);
+  animation: nexus-pulse 1s ease-in-out infinite;
+}
+
+/* Mode chip variants -- theme-aware */
+.mode-chip-dev {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--nexus-purple) 18%, transparent),
+    color-mix(in srgb, var(--nexus-violet) 10%, transparent));
+  border: 1px solid color-mix(in srgb, var(--nexus-purple) 35%, transparent);
+  color: var(--mode-dev-text);
+}
+.mode-chip-problem {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--nexus-amber) 18%, transparent),
+    color-mix(in srgb, var(--nexus-amber) 8%, transparent));
+  border: 1px solid color-mix(in srgb, var(--nexus-amber) 35%, transparent);
+  color: var(--mode-problem-text);
+}
+.mode-chip-learning {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--nexus-teal) 18%, transparent),
+    color-mix(in srgb, var(--nexus-teal) 8%, transparent));
+  border: 1px solid color-mix(in srgb, var(--nexus-teal) 35%, transparent);
+  color: var(--mode-learning-text);
+}
+
+/* Phase pill */
+.phase-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--nexus-border);
+  background: var(--nexus-surface);
+  color: var(--muted-foreground);
+}
+.phase-pill-active {
+  border-color: color-mix(in srgb, var(--nexus-purple) 50%, transparent);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--nexus-purple) 20%, transparent),
+    color-mix(in srgb, var(--nexus-violet) 10%, transparent));
+  color: var(--mode-dev-text);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--nexus-purple) 15%, transparent),
+              0 0 16px color-mix(in srgb, var(--nexus-purple) 25%, transparent);
+}
+.phase-pill-completed {
+  border-color: color-mix(in srgb, var(--nexus-teal) 40%, transparent);
+  background: color-mix(in srgb, var(--nexus-teal) 10%, transparent);
+  color: var(--mode-learning-text);
+}
+
+/* Code blocks */
+.nexus-code {
+  background: var(--nexus-bg);
+  border: 1px solid var(--nexus-border);
+  border-radius: 10px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* --- Structured markdown content ------------------------------------------- */
+.nexus-prose { line-height: 1.7; }
+
+.nexus-p {
+  margin: 0.6em 0;
+  line-height: 1.7;
+  color: var(--foreground);
+}
+.nexus-prose > p:first-child { margin-top: 0; }
+.nexus-prose > p:last-child { margin-bottom: 0; }
+
+.nexus-h1, .nexus-h2, .nexus-h3, .nexus-h4 {
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--foreground);
+  margin-top: 1.4em;
+  margin-bottom: 0.5em;
+  line-height: 1.3;
+}
+.nexus-h1 {
+  font-size: 1.3rem;
+  padding-bottom: 0.4em;
+  border-bottom: 1px solid var(--nexus-border);
+}
+.nexus-h2 {
+  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.nexus-h2::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 1em;
+  background: linear-gradient(180deg, var(--nexus-purple), var(--nexus-violet));
+  border-radius: 2px;
+}
+.nexus-h3 { font-size: 1.02rem; font-weight: 600; }
+.nexus-h4 { font-size: 0.92rem; font-weight: 600; color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.04em; }
+
+.nexus-ul, .nexus-ol { padding-left: 1.5em; margin: 0.6em 0; }
+.nexus-ul { list-style: none; }
+.nexus-ul > .nexus-li {
+  position: relative;
+  padding-left: 0.2em;
+  margin: 0.35em 0;
+  line-height: 1.65;
+}
+.nexus-ul > .nexus-li::before {
+  content: "";
+  position: absolute;
+  left: -1em;
+  top: 0.7em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--nexus-purple), var(--nexus-violet));
+}
+.nexus-ol { list-style: decimal; }
+.nexus-ol > .nexus-li {
+  margin: 0.35em 0;
+  line-height: 1.65;
+  padding-left: 0.3em;
+}
+.nexus-ol > .nexus-li::marker {
+  color: var(--nexus-purple);
+  font-weight: 600;
+}
+.nexus-li { color: var(--foreground); }
+.nexus-li > p { margin: 0.2em 0; }
+
+.nexus-strong { font-weight: 700; color: var(--foreground); }
+.nexus-em { font-style: italic; color: var(--muted-foreground); }
+
+.nexus-inline-code {
+  background: color-mix(in srgb, var(--nexus-purple) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--nexus-purple) 22%, transparent);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  color: var(--mode-dev-text);
+  white-space: nowrap;
+}
+
+.nexus-quote {
+  border-left: 3px solid var(--nexus-purple);
+  background: color-mix(in srgb, var(--nexus-purple) 6%, transparent);
+  padding: 0.6em 1em;
+  margin: 0.8em 0;
+  border-radius: 0 6px 6px 0;
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.nexus-quote > p { margin: 0.3em 0; }
+
+.nexus-hr {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--nexus-border), transparent);
+  margin: 1.2em 0;
+}
+
+.nexus-table-wrap { overflow-x: auto; margin: 0.8em 0; border-radius: 8px; border: 1px solid var(--nexus-border); }
+.nexus-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.nexus-th {
+  background: color-mix(in srgb, var(--nexus-purple) 10%, transparent);
+  border: 1px solid var(--nexus-border);
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--foreground);
+  white-space: nowrap;
+}
+.nexus-td {
+  border: 1px solid var(--nexus-border);
+  padding: 8px 12px;
+  color: var(--foreground);
+  vertical-align: top;
+}
+.nexus-table tr:nth-child(even) .nexus-td {
+  background: color-mix(in srgb, var(--nexus-surface) 50%, transparent);
+}
+
+.nexus-prose a { color: var(--nexus-violet); text-decoration: underline; text-underline-offset: 2px; }
+.nexus-prose a:hover { color: var(--nexus-purple); }
+
+/* --- Code block (fenced) --------------------------------------------------- */
+.nexus-code-block {
+  border: 1px solid var(--nexus-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--nexus-bg);
+}
+.nexus-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: color-mix(in srgb, var(--nexus-surface-2) 80%, transparent);
+  border-bottom: 1px solid var(--nexus-border);
+}
+.nexus-code-lang {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-foreground);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nexus-code-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--muted-foreground);
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 150ms ease;
+  border: 1px solid transparent;
+}
+.nexus-code-copy:hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--nexus-purple) 12%, transparent);
+  border-color: color-mix(in srgb, var(--nexus-purple) 25%, transparent);
+}
+
+/* --- Partners marquee ------------------------------------------------------ */
+@keyframes nexus-marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.nexus-marquee {
+  overflow: hidden;
+  position: relative;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 8%, #000 92%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 8%, #000 92%, transparent 100%);
+}
+.nexus-marquee-track {
+  display: flex;
+  align-items: center;
+  gap: 3rem;
+  width: max-content;
+  animation: nexus-marquee 40s linear infinite;
+}
+.nexus-marquee:hover .nexus-marquee-track {
+  animation-play-state: paused;
+}
+.nexus-marquee-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  transition: color 200ms ease;
+  cursor: default;
+}
+.nexus-marquee-item:hover {
+  color: var(--foreground);
+}
+.nexus-marquee-item-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--nexus-surface);
+  border: 1px solid var(--nexus-border);
+  padding: 4px;
+  transition: all 200ms ease;
+}
+.nexus-marquee-item:hover .nexus-marquee-item-icon {
+  border-color: color-mix(in srgb, var(--nexus-purple) 40%, transparent);
+  background: color-mix(in srgb, var(--nexus-surface-2) 80%, transparent);
+  transform: scale(1.08);
+}
+
+/* --- Auth screen marketing panel --------------------------------------- */
+@keyframes nexus-float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+.nexus-float { animation: nexus-float 4s ease-in-out infinite; }
+.nexus-float-delayed { animation: nexus-float 4s ease-in-out infinite; animation-delay: 1.5s; }
+
+@keyframes nexus-gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+.nexus-animated-gradient {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--nexus-purple) 25%, transparent),
+    color-mix(in srgb, var(--nexus-violet) 15%, transparent),
+    color-mix(in srgb, var(--nexus-teal) 10%, transparent),
+    color-mix(in srgb, var(--nexus-purple) 25%, transparent));
+  background-size: 300% 300%;
+  animation: nexus-gradient-shift 12s ease infinite;
+}
+
+/* Message bubble transitions */
+@keyframes nexus-message-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.nexus-message-in { animation: nexus-message-in 280ms ease-out; }
+
+/* Button hover glow */
+.nexus-btn-glow:hover {
+  box-shadow: 0 0 20px color-mix(in srgb, var(--nexus-purple) 35%, transparent);
+}
+
+/* --------------------------------------------------------------------
+   RESPONSIVE UTILITIES
+   -------------------------------------------------------------------- */
+
+/* Hide scrollbar for horizontal scrollers */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Safe-area padding for mobile */
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0); }
+
+/* Sidebar drawer animation for mobile */
+@keyframes nexus-slide-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+.nexus-drawer-enter { animation: nexus-slide-in-left 220ms ease-out; }
+
+@keyframes nexus-slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.nexus-drawer-right-enter { animation: nexus-slide-in-right 220ms ease-out; }
+
+@keyframes nexus-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.nexus-fade-in { animation: nexus-fade-in 200ms ease-out; }
+
+/* Responsive phase stepper: horizontal scroll on small screens */
+@media (max-width: 768px) {
+  .phase-stepper-track {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .phase-stepper-track::-webkit-scrollbar { display: none; }
+  .phase-stepper-track > * { flex-shrink: 0; }
+}
