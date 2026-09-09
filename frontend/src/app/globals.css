@@ -221,6 +221,122 @@
   border: 1px solid color-mix(in srgb, var(--nexus-purple) 12%, transparent);
 }
 
+/* Heavier glass -- final-CTA panel. More opaque surface + stronger border
+   than .nexus-glass, so it reads as a distinct "closing" panel rather than
+   another card. */
+.nexus-glass-strong {
+  background: linear-gradient(165deg,
+    color-mix(in srgb, var(--nexus-surface-2) 92%, transparent) 0%,
+    color-mix(in srgb, var(--nexus-surface) 96%, transparent) 100%);
+  backdrop-filter: blur(20px);
+  border: 1px solid color-mix(in srgb, var(--nexus-purple) 28%, transparent);
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, white 8%, transparent) inset,
+    0 24px 60px -20px color-mix(in srgb, var(--nexus-purple) 35%, transparent);
+}
+
+/* --- Landing page: hero + bento cards -------------------------------------
+   LandingPage.tsx already references these six classes (mesh blobs, floating
+   particles, gradient headline text, section rhythm, bento cards) -- they
+   were referenced in JSX but never defined here, so the hero/cards silently
+   rendered as unstyled divs and plain-color text. This is that missing CSS. */
+
+/* Large soft color fields drifting slowly behind the hero -- the depth cue
+   that makes a hero read as "designed" instead of a flat background. */
+.nexus-mesh-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  opacity: 0.35;
+  pointer-events: none;
+  animation: nexus-mesh-drift 18s ease-in-out infinite;
+}
+@keyframes nexus-mesh-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(3%, -4%) scale(1.08); }
+  66% { transform: translate(-2%, 3%) scale(0.96); }
+}
+
+/* Small ambient particles rising through the hero. Position/timing are set
+   per-particle inline (left/animationDelay/animationDuration) by the
+   component; this class only supplies the shared shape + motion. */
+.nexus-particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  opacity: 0;
+  pointer-events: none;
+  animation-name: nexus-particle-rise;
+  animation-timing-function: ease-in;
+  animation-iteration-count: infinite;
+}
+@keyframes nexus-particle-rise {
+  0% { transform: translateY(0) scale(0.6); opacity: 0; }
+  10% { opacity: 0.7; }
+  90% { opacity: 0.35; }
+  100% { transform: translateY(-320px) scale(1); opacity: 0; }
+}
+
+/* Three-stop brand gradient headline text -- promoted from the one-off
+   bg-clip-text treatment already used inline in AuthScreen's right panel. */
+.nexus-text-gradient {
+  background: linear-gradient(135deg, var(--nexus-purple), var(--nexus-violet) 55%, var(--nexus-teal));
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+/* Consistent vertical rhythm between landing-page sections -- scales with
+   viewport width instead of jumping at breakpoints. */
+.nexus-section {
+  padding-block: clamp(2.5rem, 5vw, 5rem);
+}
+
+/* Mode-card container ("bento" cards). Glass surface + a hairline inset
+   highlight along the top edge (the detail that makes a card feel like a
+   physical panel rather than a bordered div) + hover elevation. */
+.nexus-bento {
+  position: relative;
+  border-radius: 1rem;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--nexus-surface-2) 70%, transparent) 0%,
+    color-mix(in srgb, var(--nexus-surface) 85%, transparent) 100%);
+  border: 1px solid var(--nexus-border);
+  box-shadow: 0 1px 0 0 color-mix(in srgb, white 6%, transparent) inset;
+  transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+}
+.nexus-bento:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--nexus-purple) 35%, transparent);
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, white 6%, transparent) inset,
+    0 16px 32px -12px color-mix(in srgb, var(--nexus-purple) 25%, transparent);
+}
+
+/* Small monospace numbered eyebrow + corner accents for the feature grid --
+   the hairline-grid, numbered-card language from the reference material,
+   layered on top of the feature grid's existing (already-working) hover glow. */
+.nexus-card-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: color-mix(in srgb, var(--nexus-purple) 70%, var(--muted-foreground));
+  opacity: 0.7;
+}
+.nexus-card-corner {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border: 1px solid color-mix(in srgb, var(--nexus-purple) 35%, transparent);
+  opacity: 0;
+  transition: opacity 200ms ease;
+  pointer-events: none;
+}
+.group:hover .nexus-card-corner { opacity: 1; }
+.nexus-card-corner-tl { top: 6px; left: 6px; border-right: none; border-bottom: none; }
+.nexus-card-corner-br { bottom: 6px; right: 6px; border-left: none; border-top: none; }
+
 /* Subtle pulse */
 @keyframes nexus-pulse {
   0%, 100% { opacity: 1; }
@@ -606,4 +722,106 @@
   }
   .phase-stepper-track::-webkit-scrollbar { display: none; }
   .phase-stepper-track > * { flex-shrink: 0; }
+}
+
+/* --- Blob loader -------------------------------------------------------
+   Ported from a supplied styled-components component to plain CSS: this
+   app has no styled-components dependency, and every other animation lives
+   here as a `.nexus-*` class driven by the existing brand tokens, so this
+   follows that convention instead of introducing a second styling system
+   for one component. Same visual mechanism as the original -- two blurred,
+   high-contrast squares blended with `mix-blend-mode: darken` so they read
+   as one liquid blob where they overlap -- just on --nexus-purple/-violet
+   instead of a hardcoded color, and sized via em so it scales with its
+   container. See components/nexus/Loader.tsx. */
+.nexus-blob-loader {
+  --blob-size: 28px;
+  width: calc(var(--blob-size) * 2.8);
+  height: calc(var(--blob-size) * 2.8);
+  display: grid;
+  place-items: center;
+  /* No backing fill -- the goo effect only needs the blur+contrast filter to
+     push semi-transparent blurred edges to fully opaque/transparent; an
+     opaque background here is what was reading as a visible white box. */
+  background: transparent;
+  filter: blur(5.6px) contrast(10);
+}
+.nexus-blob-loader::before,
+.nexus-blob-loader::after {
+  content: "";
+  grid-area: 1 / 1;
+  width: var(--blob-size);
+  height: var(--blob-size);
+  background: var(--nexus-purple);
+  animation: nexus-blob-move 2s infinite;
+  mix-blend-mode: darken;
+}
+.nexus-blob-loader::after {
+  background: var(--nexus-violet);
+  animation-delay: -1s;
+}
+@keyframes nexus-blob-move {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(100%, 0); }
+  50% { transform: translate(100%, 100%); }
+  75% { transform: translate(0, 100%); }
+  100% { transform: translate(0, 0); }
+}
+
+/* --- Editorial landing system --------------------------------------------
+   The marketing page (LandingPage.tsx) uses a "swiss editorial" layout --
+   hairline grid, monospace labels, oversized display type -- but its COLORS
+   are just the app's own violet/purple + white/black theme tokens under new
+   names, so the page tracks the dark/light toggle exactly like the rest of
+   the app. Prefixed `ed-` to keep the layout-only concerns (labels,
+   hairlines, grid) separate from the `nexus-*` in-app tokens above. */
+.ed-page {
+  --ed-bg: var(--nexus-bg);
+  --ed-fg: var(--foreground);
+  --ed-muted: var(--muted-foreground);
+  --ed-line: var(--nexus-border);
+  --ed-accent: var(--nexus-purple);
+  --ed-surface: var(--nexus-surface);
+  background: var(--ed-bg);
+  color: var(--ed-fg);
+}
+
+.ed-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ed-muted);
+}
+
+.ed-hairline {
+  border-color: var(--ed-line);
+}
+
+/* Vertical column rules across the hero, evoking a print grid. Purely
+   decorative -- content sits in a normal flow on top of it. */
+.ed-grid-lines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+}
+.ed-grid-lines > div {
+  border-left: 1px solid var(--ed-line);
+  height: 100%;
+}
+.ed-grid-lines > div:first-child {
+  border-left: none;
+}
+
+.ed-ticker-track {
+  display: flex;
+  width: max-content;
+  animation: ed-ticker-scroll 26s linear infinite;
+}
+
+@keyframes ed-ticker-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
 }

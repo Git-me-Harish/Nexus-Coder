@@ -5,11 +5,11 @@ import { createPortal } from "react-dom";
 import {
   Plus, FolderGit2, MessageSquare, GraduationCap, Settings,
   LogOut, ChevronRight, Sparkles, History, Search, MoreVertical,
-  Star, Pin, Pencil, Trash2, X, Menu, Check, KeyRound,
+  Star, Pin, Pencil, Trash2, X, Menu, Check,
 } from "lucide-react";
 import Wordmark from "./Wordmark";
 import ModeBadge from "./ModeBadge";
-import ThemeToggle from "./ThemeToggle";
+import Avatar from "./Avatar";
 import { useAuthStore } from "@/stores/authStore";
 import { useAppStore, type Session, type Project } from "@/stores/appStore";
 import { navigate } from "@/hooks/use-hash-router";
@@ -36,7 +36,6 @@ export default function Sidebar({ onNavigate }: SidebarProps) {
     sessions, activeSession, setActiveSession,
     setSessions, setMessages, setFiles, setSpecs,
     setProjects, updateProject, removeProject, updateSession, removeSession,
-    setShowModelConfig,
   } = useAppStore();
 
   const [showNew, setShowNew] = useState(false);
@@ -229,9 +228,6 @@ export default function Sidebar({ onNavigate }: SidebarProps) {
     setRenameValue(s.title ?? "");
   }
 
-  const initials = (user?.name || user?.email || "?")
-    .split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
-
   // Sort: pinned first, then starred, then by updatedAt desc
   const sortedProjects = sortProjects(projects);
 
@@ -245,7 +241,6 @@ export default function Sidebar({ onNavigate }: SidebarProps) {
         >
           <Wordmark size="sm" />
         </button>
-        <ThemeToggle compact />
       </div>
 
       {/* New project */}
@@ -482,31 +477,27 @@ export default function Sidebar({ onNavigate }: SidebarProps) {
         </button>
       </div>
 
+      {/* User footer — click through to the full profile page (theme,
+          API keys, GitHub connection all live there now, not a popup). */}
       <button
-        onClick={() => setShowModelConfig(true)}
-        className="mx-3 mb-3 flex items-center gap-2 rounded-lg border border-[var(--nexus-border)] px-3 py-2 text-xs text-[var(--muted-foreground)] transition hover:bg-[var(--nexus-surface-2)] hover:text-[var(--foreground)]"
+        onClick={() => { navigate("profile"); onNavigate?.(); }}
+        className="mx-3 mb-3 flex items-center gap-2 rounded-lg border border-[var(--nexus-border)] px-3 py-2.5 text-left transition hover:bg-[var(--nexus-surface-2)]"
       >
-        <KeyRound className="h-3.5 w-3.5" />
-        Configure Models
-      </button>
-
-      {/* User footer */}
-      <div className="px-3 py-3 border-t border-[var(--nexus-border)] flex items-center gap-2">
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[var(--nexus-violet)] to-[var(--nexus-purple-dim)] flex items-center justify-center text-xs font-semibold text-white shrink-0">
-          {initials}
-        </div>
+        <Avatar src={user?.avatarUrl} name={user?.name ?? user?.email} className="w-8 h-8" textClassName="text-xs" />
         <div className="flex-1 min-w-0">
           <div className="text-xs font-medium text-[var(--foreground)] truncate">{user?.name ?? user?.email}</div>
           <div className="text-[10px] text-[var(--muted-foreground)] truncate">{user?.email}</div>
         </div>
-        <button
-          onClick={() => { window.dispatchEvent(new Event("nexus:logout")); }}
-          className="p-1.5 rounded-md text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--nexus-surface-2)] transition"
-          title="Sign out"
-        >
-          <LogOut className="w-3.5 h-3.5" />
-        </button>
-      </div>
+        <Settings className="w-3.5 h-3.5 text-[var(--muted-foreground)] shrink-0" />
+      </button>
+
+      <button
+        onClick={() => { window.dispatchEvent(new Event("nexus:logout")); }}
+        className="mx-3 mb-3 flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition hover:bg-[var(--nexus-surface-2)] hover:text-[var(--foreground)]"
+      >
+        <LogOut className="w-3.5 h-3.5" />
+        Sign out
+      </button>
 
       {/* Keep this dialog at the document level: the desktop sidebar's backdrop
           filter otherwise traps fixed children inside the 260px column. */}

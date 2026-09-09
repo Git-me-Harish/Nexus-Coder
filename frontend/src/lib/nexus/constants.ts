@@ -41,7 +41,7 @@ export const PHASE_META: Record<Phase, { label: string; tagline: string; icon: s
   quiz:           { label: "Quiz",            tagline: "Test mastery",          icon: "GraduationCap" },
 };
 
-// ─── Model Registry ─────────────────────────────────────────────────────────
+// Model Registry
 
 export interface ModelDef {
   id: string;
@@ -56,26 +56,41 @@ export interface ModelDef {
   available: boolean;
 }
 
+/**
+ * Static fallback catalog, rendered only until `GET /api/models` responds.
+ *
+ * THE BACKEND IS THE SOURCE OF TRUTH (backend/app/agents/constants.py MODELS).
+ * That endpoint returns these same fields plus a real per-tenant `available`
+ * flag, and the model switcher renders from it -- see TopBar.tsx.
+ *
+ * This list existed as a full second copy of the catalog and had already
+ * drifted badly: it offered `groq-llama-3-70b` and `gemini-1-5-pro`, ids the
+ * backend has never heard of. Picking one sent an unresolvable slug to the
+ * router, which fell through to its "assume anthropic" default and 404'd at
+ * the provider. Keep this in sync when the backend catalog changes, or better,
+ * don't add entries here at all -- add them to the backend and let them arrive
+ * over the wire.
+ */
 export const MODELS: ModelDef[] = [
   {
-    id: "claude-sonnet-4-6",
+    id: "claude-sonnet-5",
     provider: "anthropic",
-    displayName: "Claude Sonnet 4.6",
-    contextWindow: 200000,
-    inputCostPer1k: 0.003,
-    outputCostPer1k: 0.015,
+    displayName: "Claude Sonnet 5",
+    contextWindow: 1000000,
+    inputCostPer1k: 0.002,
+    outputCostPer1k: 0.01,
     capabilityTier: "balanced",
     phaseSuitability: ["planning", "specification", "implementation", "debug"],
     description: "Reasoning + code — default workhorse for specs and implementation.",
     available: true,
   },
   {
-    id: "claude-opus-4-6",
+    id: "claude-opus-5",
     provider: "anthropic",
-    displayName: "Claude Opus 4.6",
-    contextWindow: 200000,
-    inputCostPer1k: 0.015,
-    outputCostPer1k: 0.075,
+    displayName: "Claude Opus 5",
+    contextWindow: 1000000,
+    inputCostPer1k: 0.005,
+    outputCostPer1k: 0.025,
     capabilityTier: "powerful",
     phaseSuitability: ["implementation"],
     description: "Highest-quality code generation for complex builds. Pro tier only.",
@@ -94,39 +109,39 @@ export const MODELS: ModelDef[] = [
     available: true,
   },
   {
-    id: "gpt-4o",
+    id: "gpt-5.6-sol",
     provider: "openai",
-    displayName: "GPT-4o",
-    contextWindow: 128000,
+    displayName: "GPT-5.6 Sol",
+    contextWindow: 1050000,
     inputCostPer1k: 0.005,
-    outputCostPer1k: 0.015,
-    capabilityTier: "balanced",
+    outputCostPer1k: 0.03,
+    capabilityTier: "powerful",
     phaseSuitability: ["planning", "specification", "debug"],
-    description: "OpenAI flagship — strong structured output and tool use.",
+    description: "OpenAI flagship — strong structured output and agentic tool use.",
     available: true,
   },
   {
-    id: "groq-llama-3-70b",
+    id: "openai/gpt-oss-120b",
     provider: "groq",
-    displayName: "Llama 3 70B (Groq)",
-    contextWindow: 32000,
-    inputCostPer1k: 0.00059,
-    outputCostPer1k: 0.00079,
+    displayName: "GPT-OSS 120B (Groq)",
+    contextWindow: 131072,
+    inputCostPer1k: 0.00015,
+    outputCostPer1k: 0.0006,
     capabilityTier: "fast",
     phaseSuitability: ["ideation", "review"],
     description: "Ultra-fast inference — best for high-volume ideation loops.",
     available: true,
   },
   {
-    id: "gemini-1-5-pro",
+    id: "gemini-3.6-flash",
     provider: "gemini",
-    displayName: "Gemini 1.5 Pro",
-    contextWindow: 2000000,
-    inputCostPer1k: 0.00125,
-    outputCostPer1k: 0.005,
-    capabilityTier: "powerful",
+    displayName: "Gemini 3.6 Flash",
+    contextWindow: 1048576,
+    inputCostPer1k: 0.0015,
+    outputCostPer1k: 0.0075,
+    capabilityTier: "fast",
     phaseSuitability: ["implementation", "debug"],
-    description: "Massive context — full project file trees in a single call.",
+    description: "Google's fast model — million-token context window.",
     available: true,
   },
   {
@@ -147,22 +162,25 @@ export function getModel(id: string): ModelDef | undefined {
   return MODELS.find((m) => m.id === id);
 }
 
-// ─── Default phase→model routing policy ─────────────────────────────────────
+// Default phase→model routing policy
+
+/** Mirrors backend/app/agents/constants.py DEFAULT_MODEL_ID. */
+export const DEFAULT_MODEL_ID = "claude-sonnet-5";
 
 export const PHASE_ROUTING: Record<string, string> = {
   ideation: "claude-haiku-4-5",
-  planning: "claude-sonnet-4-6",
-  specification: "claude-sonnet-4-6",
-  implementation: "claude-sonnet-4-6",
-  debug: "claude-sonnet-4-6",
+  planning: DEFAULT_MODEL_ID,
+  specification: DEFAULT_MODEL_ID,
+  implementation: DEFAULT_MODEL_ID,
+  debug: DEFAULT_MODEL_ID,
   review: "claude-haiku-4-5",
-  discussion: "claude-sonnet-4-6",
-  explain: "claude-sonnet-4-6",
-  practice: "claude-sonnet-4-6",
+  discussion: DEFAULT_MODEL_ID,
+  explain: DEFAULT_MODEL_ID,
+  practice: DEFAULT_MODEL_ID,
   quiz: "claude-haiku-4-5",
 };
 
-// ─── Spec Builder — 12 Architectural Dimensions ────────────────────────────
+// Spec Builder — 12 Architectural Dimensions
 
 export interface SpecOption {
   id: string;

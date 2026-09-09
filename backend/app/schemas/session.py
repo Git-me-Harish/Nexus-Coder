@@ -17,6 +17,11 @@ class SessionUpdate(CamelModel):
     starred: bool | None = None
     pinned: bool | None = None
     status: str | None = None
+    # Set once by the user via the one-time Implementation-phase picker (see
+    # ChatPanel's build-depth gate) -- not inferred from a chat reply, for
+    # the same reliability reason spec dimensions are structured rather than
+    # free-text-parsed.
+    build_depth: str | None = Field(default=None, pattern="^(prototype|mvp|production)$")
 
 
 class AdvancePhaseRequest(CamelModel):
@@ -39,6 +44,10 @@ class SessionOut(CamelModel):
     title: str | None
     sandbox_status: str
     sandbox_preview_url: str | None
+    github_repo_url: str | None
+    idea_confirmed_at: datetime | None
+    plan_confirmed_at: datetime | None
+    build_depth: str | None
     created_at: datetime
     updated_at: datetime
 

@@ -6,8 +6,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# git: the GitHub push route (app/services/github_service.py) shells out to
+# it directly on this host, not inside the agent's sandbox -- pushing a
+# session's workspace is a deliberate one-off user action with real network
+# access, not something the model decides to do itself.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev gcc curl \
+    libpq-dev gcc curl git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

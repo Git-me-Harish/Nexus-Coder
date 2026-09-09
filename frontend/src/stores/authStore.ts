@@ -10,6 +10,13 @@ interface User {
   name?: string | null;
   avatarUrl?: string | null;
   githubUsername?: string | null;
+  bio?: string | null;
+  company?: string | null;
+  location?: string | null;
+  createdAt?: string | null;
+  /** False for accounts created through "Continue with GitHub" — the Security
+   *  tab offers "set a password" instead of asking for a current one. */
+  hasPassword?: boolean;
 }
 
 interface Tenant {
@@ -38,6 +45,8 @@ interface AuthState {
   setSession: (s: { user: User; tenant: Tenant | null; token: string; refreshToken: string; preferences?: Preferences | null }) => void;
   clear: () => void;
   fetchMe: () => Promise<void>;
+  updateUser: (patch: Partial<User>) => void;
+  updatePreferences: (patch: Partial<Preferences>) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -56,6 +65,12 @@ export const useAuthStore = create<AuthState>()(
 
       clear: () =>
         set({ user: null, tenant: null, preferences: null, token: null, refreshToken: null, isAuthenticated: false, isLoading: false }),
+
+      updateUser: (patch) =>
+        set((s) => (s.user ? { user: { ...s.user, ...patch } } : {})),
+
+      updatePreferences: (patch) =>
+        set((s) => (s.preferences ? { preferences: { ...s.preferences, ...patch } } : { preferences: patch as Preferences })),
 
       // NOTE: intentionally uses raw fetch (not the api.* client) to avoid
       // a circular import with client.ts, which itself reads from this store.

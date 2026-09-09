@@ -61,18 +61,43 @@ async def test_session_detail_includes_nested_relations(client, auth_headers):
         assert key in body, f"missing {key} in session detail response"
 
 
-async def test_advance_phase_blocked_without_confirmed_spec(client, auth_headers):
+async def test_advance_phase_blocked_without_confirmed_artifacts(client, auth_headers):
+    """
+    All three development-mode transitions before Implementation are gated on
+    an explicit user confirmation now: ideation->planning on IDEA.md
+    (idea_confirmed_at), planning->specification on PLAN.md
+    (plan_confirmed_at), specification->implementation on the Specification
+    row's confirmed_at (unchanged). Each gate is independent of what the
+    agent's critic believed about phase_complete -- see the note in
+    session_service.advance_phase.
+    """
     r_proj = await client.post("/api/projects", json={"name": "P"}, headers=auth_headers)
     project_id = r_proj.json()["project"]["id"]
     r_sess = await client.post("/api/sessions", json={"projectId": project_id, "mode": "development"}, headers=auth_headers)
     session_id = r_sess.json()["session"]["id"]
 
-    # ideation -> planning: no approval gate, should succeed
+    # ideation -> planning: REQUIRES the idea confirmed
+    r = await client.post(f"/api/sessions/{session_id}", json={}, headers=auth_headers)
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "IDEA_NOT_CONFIRMED"
+
+    r = await client.patch(f"/api/sessions/{session_id}/idea/confirm", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["session"]["ideaConfirmedAt"] is not None
+
     r = await client.post(f"/api/sessions/{session_id}", json={}, headers=auth_headers)
     assert r.status_code == 200
     assert r.json()["session"]["currentPhase"] == "planning"
 
-    # planning -> specification: no gate either
+    # planning -> specification: REQUIRES the plan confirmed
+    r = await client.post(f"/api/sessions/{session_id}", json={}, headers=auth_headers)
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "PLAN_NOT_CONFIRMED"
+
+    r = await client.patch(f"/api/sessions/{session_id}/plan/confirm", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["session"]["planConfirmedAt"] is not None
+
     r = await client.post(f"/api/sessions/{session_id}", json={}, headers=auth_headers)
     assert r.json()["session"]["currentPhase"] == "specification"
 
@@ -91,6 +116,26 @@ async def test_advance_phase_blocked_without_confirmed_spec(client, auth_headers
     r = await client.post(f"/api/sessions/{session_id}", json={}, headers=auth_headers)
     assert r.status_code == 200
     assert r.json()["session"]["currentPhase"] == "implementation"
+
+
+async def test_confirming_idea_or_plan_on_another_tenant_users_session_is_rejected(client, auth_headers):
+    """The confirm endpoints must go through the same tenant/user-scoped
+    get_session lookup as everything else -- confirming someone else's
+    ideation just because you know a session id would be a real hole."""
+    r_proj = await client.post("/api/projects", json={"name": "P"}, headers=auth_headers)
+    project_id = r_proj.json()["project"]["id"]
+    r_sess = await client.post("/api/sessions", json={"projectId": project_id, "mode": "development"}, headers=auth_headers)
+    session_id = r_sess.json()["session"]["id"]
+
+    r_other = await client.post("/api/auth/register", json={
+        "email": "otherconfirm@example.com", "password": "password123!",
+    })
+    other_headers = {"Authorization": f"Bearer {r_other.json()['token']}"}
+
+    r = await client.patch(f"/api/sessions/{session_id}/idea/confirm", headers=other_headers)
+    assert r.status_code == 404
+    r = await client.patch(f"/api/sessions/{session_id}/plan/confirm", headers=other_headers)
+    assert r.status_code == 404
 
 
 async def test_message_length_is_bounded(client, auth_headers):
@@ -133,6 +178,24 @@ async def test_spec_accepts_valid_dimension(client, auth_headers):
     )
     assert r.status_code == 200
     assert r.json()["spec"]["dimensions"]["database"]["label"] == "PostgreSQL"
+
+
+async def test_build_depth_is_set_via_session_update_and_validated(client, auth_headers):
+    """build_depth is set through the generic PATCH /sessions/{id} endpoint
+    (SessionUpdate), deliberately NOT inferred from a chat reply -- see the
+    ChatPanel build-depth gate. Only the three known values are accepted."""
+    r_proj = await client.post("/api/projects", json={"name": "P"}, headers=auth_headers)
+    project_id = r_proj.json()["project"]["id"]
+    r_sess = await client.post("/api/sessions", json={"projectId": project_id, "mode": "development"}, headers=auth_headers)
+    session_id = r_sess.json()["session"]["id"]
+    assert r_sess.json()["session"]["buildDepth"] is None
+
+    r = await client.patch(f"/api/sessions/{session_id}", json={"buildDepth": "prototype"}, headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["session"]["buildDepth"] == "prototype"
+
+    r = await client.patch(f"/api/sessions/{session_id}", json={"buildDepth": "not_a_real_depth"}, headers=auth_headers)
+    assert r.status_code == 422
 
 
 async def test_session_not_visible_to_other_tenant_member_even_if_ever_shared(client):

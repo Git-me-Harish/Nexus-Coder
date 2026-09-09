@@ -1,10 +1,24 @@
 """
 POST a user message -> stream the agent's response over SSE, backed by
-LangGraph. Event contract matches the frontend's existing SSE parser
-(src/components/nexus/ChatPanel.tsx) exactly — phase/token/task_complete/
-error/end/provider_fallback/file_written/token_warning, with the same
-(intentionally snake_case) payload keys the original TS stream route
-used, so the chat UI needs zero changes.
+LangGraph. Event contract (all payload keys intentionally snake_case, as the
+original TS stream route used):
+
+  phase             turn starting: model, phase, worker, token budget
+  stage             which reasoning stage is running -- planning | answering
+                    | reviewing | revising (see app/agents/graph.py)
+  reasoning         deltas of the plan stage's thinking
+  token             deltas of the user-facing answer
+  stream_reset      discard everything streamed so far for `scope` and
+                    re-render from empty; emitted when a provider dies
+                    mid-stream and we fall back, and when a rejected draft
+                    is about to be replaced by its revision
+  critique          the review stage's verdict on the draft
+  phase_advanced    the agent judged the phase complete and it advanced
+  provider_fallback / file_written / token_warning / task_complete / error / end
+
+stage, reasoning, stream_reset, critique and phase_advanced are new with the
+reasoning pipeline. The frontend ignores events it does not recognise, so an
+older client degrades to plain token streaming rather than breaking.
 
 file_written and provider_fallback were both listened for by the frontend
 from the start but never emitted by the initial migration — this route
@@ -20,20 +34,21 @@ upstream failure.
 """
 import json
 import logging
+from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
+from app.agents import workspace
 from app.agents.constants import PHASE_TO_WORKER, get_model
 from app.agents.file_extraction import extract_files_from_output
 from app.agents.graph import get_graph
 from app.agents.prompts import build_context_digest
 from app.agents.providers.base import ProviderError, ProviderNotConfiguredError
 from app.api.deps import CurrentAuth, TenantDb
-from app.core.exceptions import api_error
-from app.models.message import Message, Specification, SessionFile
+from app.models.message import AgentTask, Message, Specification, SessionFile
 from app.schemas.session import MessageOut, SendMessageRequest, StreamMessageRequest
 from app.services import session_service, usage_service
 
@@ -95,7 +110,10 @@ async def _build_context_digest(db: "AsyncSession", session) -> str:
         # Short pointer, not the full text -- keeps the digest compact.
         prior_summary = f"[{prior.phase}] {prior.content[:280]}" + ("..." if len(prior.content) > 280 else "")
 
-    return build_context_digest(mode=session.mode, spec_dimensions=spec_dimensions, prior_phase_summary=prior_summary)
+    return build_context_digest(
+        mode=session.mode, spec_dimensions=spec_dimensions,
+        prior_phase_summary=prior_summary, build_depth=session.build_depth,
+    )
 
 
 @router.post("/{session_id}/agent/stream")
@@ -106,6 +124,10 @@ async def stream_agent(session_id: str, payload: StreamMessageRequest, auth: Cur
     db.add(Message(session_id=session.id, user_id=auth.user_id, role="user", content=payload.user_message))
     await db.commit()
 
+    # The DB is the single source of truth for history; the graph state's
+    # `messages` is a plain overwrite field so re-sending it each turn
+    # replaces rather than appends. See app/agents/state.py for the reducer
+    # trap this avoids.
     history = [
         {"role": m.role, "content": m.content}
         for m in (await db.execute(
@@ -126,10 +148,7 @@ async def stream_agent(session_id: str, payload: StreamMessageRequest, auth: Cur
                 "tenant_id": auth.tenant_id,
             }
         }
-        full_text = ""
-        tokens_in = tokens_out = 0
-        provider_used = "unknown"
-        fallback_events_emitted = 0
+        final_state: dict = {}
 
         yield {
             "event": "phase",
@@ -144,35 +163,33 @@ async def stream_agent(session_id: str, payload: StreamMessageRequest, auth: Cur
         }
 
         try:
-            async for event in graph.astream(
+            # "custom" carries the nodes' live token/reasoning/stage writes as
+            # they are generated; "values" carries the state snapshot we need
+            # after the graph settles. Draining the provider stream inside a
+            # node and relying on "values" alone -- as this route used to --
+            # meant nothing reached the client until the whole turn finished,
+            # so there was no live output and long generations sat silent long
+            # enough to risk an SSE idle-timeout.
+            async for stream_mode, payload in graph.astream(
                 {
                     "messages": history, "session_id": session.id, "mode": session.mode,
                     "current_phase": session.current_phase, "model_id": session.base_model_id,
-                    "context_digest": context_digest, "iterations": 0,
+                    "context_digest": context_digest,
+                    # Explicit per-turn zeroing: these are overwrite fields, so
+                    # this resets whatever the checkpoint holds from last turn.
+                    "attempts": 0, "tokens_in": 0, "tokens_out": 0,
+                    "fallback_events": [], "revision_notes": "",
+                    "plan": {}, "critique": {}, "phase_output": "",
+                    "should_advance_phase": False,
+                    "tool_steps": 0, "tool_trace": [], "touched_paths": [],
+                    "ran_command": False,
                 },
-                config=config, stream_mode="values",
+                config=config, stream_mode=["custom", "values"],
             ):
-                latest = event.get("phase_output", "")
-                if latest and latest != full_text:
-                    delta = latest[len(full_text):]
-                    full_text = latest
-                    yield {"event": "token", "data": json.dumps({"content": delta})}
-                tokens_in = event.get("tokens_in", tokens_in)
-                tokens_out = event.get("tokens_out", tokens_out)
-                provider_used = event.get("provider_used", provider_used)
-
-                fallback_events = event.get("fallback_events") or []
-                for fb in fallback_events[fallback_events_emitted:]:
-                    yield {
-                        "event": "provider_fallback",
-                        "data": json.dumps({
-                            "requested_model": fb["requested_model"],
-                            "fallback_provider": fb["fallback_provider"],
-                            "fallback_model": fb["fallback_model"],
-                            "reason": fb["reason"],
-                        }),
-                    }
-                fallback_events_emitted = len(fallback_events)
+                if stream_mode == "custom":
+                    yield {"event": payload["event"], "data": json.dumps(payload["data"])}
+                else:
+                    final_state = payload
         except ProviderNotConfiguredError as exc:
             logger.info("Agent run blocked for session %s: no key for %s", session.id, exc.provider)
             yield {"event": "error", "data": json.dumps({
@@ -189,16 +206,60 @@ async def stream_agent(session_id: str, payload: StreamMessageRequest, auth: Cur
             })}
             return
 
+        full_text = final_state.get("phase_output", "")
+        tokens_in = final_state.get("tokens_in", 0)
+        tokens_out = final_state.get("tokens_out", 0)
+        provider_used = final_state.get("provider_used", "unknown")
+        answered_phase = session.current_phase
+
         assistant_message = Message(
             session_id=session.id, role="assistant", content=full_text,
-            phase=session.current_phase, model_id=session.base_model_id,
+            phase=answered_phase, model_id=session.base_model_id,
             tokens_in=tokens_in, tokens_out=tokens_out,
         )
         db.add(assistant_message)
         session.langgraph_thread_id = session.langgraph_thread_id or session.id
         session.tokens_used += tokens_in + tokens_out
 
-        written_files = await _upsert_session_files(db, session.id, full_text)
+        # Durable trace of the reasoning pipeline for this turn. AgentTask was
+        # declared in the schema from the start but never written by anything,
+        # so there was no way to inspect after the fact why the agent answered
+        # as it did -- the plan, the verdict, and how many passes it took are
+        # exactly what you need when a turn goes wrong.
+        critique = final_state.get("critique") or {}
+        tool_trace = final_state.get("tool_trace") or []
+        db.add(AgentTask(
+            session_id=session.id, task_type=PHASE_TO_WORKER.get(answered_phase, "coder"),
+            status="completed", model_id=session.base_model_id,
+            input_payload=json.dumps({"phase": answered_phase, "mode": session.mode}),
+            output_payload=json.dumps({
+                "plan": final_state.get("plan") or {},
+                "critique": critique,
+                "provider_used": provider_used,
+                # What the agent actually did, not just what it said -- the
+                # first thing you want when a turn goes wrong.
+                "tool_trace": tool_trace,
+                "tool_steps": final_state.get("tool_steps", 0),
+                "ran_command": bool(final_state.get("ran_command")),
+            }),
+            tokens_in=tokens_in, tokens_out=tokens_out,
+            iteration_count=final_state.get("attempts", 0),
+            completed_at=datetime.now(timezone.utc),
+        ))
+
+        # Files reach the DB two ways now, and both still matter:
+        #   - the ReAct tools wrote them through as they ran (agentic phases)
+        #   - the fenced-code extractor parses them out of prose (every other
+        #     phase, and any model that describes a file instead of writing it)
+        # Dedupe by path so a file written both ways is announced once.
+        written_files = await workspace.sync_to_db(
+            db, session.id, final_state.get("touched_paths") or []
+        )
+        seen = {f["path"] for f in written_files}
+        written_files += [
+            f for f in await _upsert_session_files(db, session.id, full_text)
+            if f["path"] not in seen
+        ]
         await db.commit()
 
         for wf in written_files:
@@ -208,6 +269,33 @@ async def stream_agent(session_id: str, payload: StreamMessageRequest, auth: Cur
             db, tenant_id=auth.tenant_id, session_id=session.id, user_id=auth.user_id,
             model_id=session.base_model_id, provider=provider_used, tokens_in=tokens_in, tokens_out=tokens_out,
         )
+
+        # The graph decided the phase's exit criteria are met -- advance it.
+        # This is what `should_advance_phase` was always supposed to do; it was
+        # previously declared in the state and written by nobody, leaving phase
+        # progression entirely on the user to drive by hand.
+        #
+        # It still goes through session_service.advance_phase rather than
+        # assigning session.current_phase directly, so the specification ->
+        # implementation approval gate stays enforced: the agent may believe
+        # the spec is finished, but only a human confirming it unlocks the
+        # implementation phase. A blocked advance is not an error here -- the
+        # answer was still produced and the user simply stays put.
+        if final_state.get("should_advance_phase"):
+            try:
+                updated = await session_service.advance_phase(
+                    db, auth.tenant_id, auth.user_id, session.id, target=None
+                )
+                yield {"event": "phase_advanced", "data": json.dumps({
+                    "from": answered_phase,
+                    "to": updated.current_phase,
+                    "reason": critique.get("reason", ""),
+                })}
+            except HTTPException as exc:
+                logger.info(
+                    "Phase advance from %s declined for session %s: %s",
+                    answered_phase, session.id, getattr(exc, "detail", exc),
+                )
 
         percent_used = (session.tokens_used / session.tokens_budget * 100) if session.tokens_budget else 0
         if percent_used >= 80:

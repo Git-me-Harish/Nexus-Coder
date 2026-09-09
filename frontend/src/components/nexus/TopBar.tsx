@@ -1,31 +1,31 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ChevronDown, Check, Zap, Activity, Settings2, Download, GitBranch, PanelRight, X, GraduationCap, KeyRound } from "lucide-react";
+import { ChevronDown, Check, Zap, Activity, Settings2, Download, GitBranch, PanelRight, X, GraduationCap, KeyRound, Play, FlaskConical } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
-import { MODELS, PHASE_META, getModel, type Phase } from "@/lib/nexus/constants";
+import { useAuthStore } from "@/stores/authStore";
+import { MODELS, PHASE_META, getModel, type ModelDef, type Phase } from "@/lib/nexus/constants";
 import { api } from "@/lib/nexus/client";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { navigate } from "@/hooks/use-hash-router";
 import { MobileSidebarTrigger } from "./ResponsiveSidebar";
-import ThemeToggle from "./ThemeToggle";
+import Avatar from "./Avatar";
 
-/** What the backend actually returns per model -- `available` reflects a
- * real per-tenant credential check (see backend/app/api/v1/routes/models.py),
- * not the static `true` baked into the client-side MODELS catalog. */
-interface LiveModel {
-  id: string;
-  provider: string;
-  available: boolean;
-}
+/** What the backend returns per model: the full catalog entry, with
+ * `available` reflecting a real per-tenant credential check (see
+ * backend/app/api/v1/routes/models.py) rather than the static `true` baked
+ * into the client-side fallback catalog. */
+type LiveModel = ModelDef;
 
 export default function TopBar() {
   const {
     activeSession, activeProject, setShowSpecModal, setShowModelSwitcher,
     setRightPanel, rightPanel, updateActiveSession, isStreaming,
     streamingModelId, streamingTokensUsed, streamingTokensBudget,
-    setMobileRightPanelOpen, mobileRightPanelOpen, setShowModelConfig,
+    setMobileRightPanelOpen, mobileRightPanelOpen,
   } = useAppStore();
+  const { user } = useAuthStore();
 
   const [modelOpen, setModelOpen] = useState(false);
   const [liveModels, setLiveModels] = useState<LiveModel[]>([]);
@@ -37,6 +37,11 @@ export default function TopBar() {
       .catch(() => {}); // keep prior state -- switcher still usable, just possibly stale
   }, [modelOpen]);
 
+  /** The backend's catalog is authoritative; the static import is only a
+   *  first-paint fallback. Rendering the static list was how ids the backend
+   *  no longer serves stayed selectable in the switcher. */
+  const switchableModels: ModelDef[] = liveModels.length > 0 ? liveModels : MODELS;
+
   function isModelLive(modelId: string): boolean {
     const live = liveModels.find((m) => m.id === modelId);
     // Before the first fetch resolves, don't falsely mark everything dead.
@@ -44,7 +49,7 @@ export default function TopBar() {
   }
 
   function providerLabelFor(modelId: string): string {
-    const model = getModel(modelId);
+    const model = switchableModels.find((m) => m.id === modelId) ?? getModel(modelId);
     if (!model) return "";
     if (model.provider === "nexus") return "auto-routes to a configured provider";
     return isModelLive(modelId) ? "configured · ready" : "no API key configured";
@@ -72,7 +77,7 @@ export default function TopBar() {
     }
   }
 
-  function toggleRightPanel(p: "spec" | "files" | "usage") {
+  function toggleRightPanel(p: NonNullable<ReturnType<typeof useAppStore.getState>["rightPanel"]>) {
     const next = rightPanel === p ? null : p;
     setRightPanel(next);
     // On mobile, open the slide-over when a panel is selected
@@ -162,6 +167,30 @@ export default function TopBar() {
             <GitBranch className="w-3.5 h-3.5" />
             <span className="hidden lg:inline">Files</span>
           </button>
+          <button
+            onClick={() => toggleRightPanel("tests")}
+            className={cn(
+              "px-2 sm:px-2.5 py-1.5 rounded-md text-xs border transition flex items-center gap-1.5",
+              rightPanel === "tests"
+                ? "bg-[color-mix(in_srgb,var(--nexus-purple)_15%,transparent)] border-[color-mix(in_srgb,var(--nexus-purple)_40%,transparent)] text-[var(--mode-dev-text)]"
+                : "border-[var(--nexus-border)] text-[var(--muted-foreground)] hover:bg-[var(--nexus-surface-2)] hover:text-[var(--foreground)]"
+            )}
+          >
+            <FlaskConical className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">Tests</span>
+          </button>
+          <button
+            onClick={() => toggleRightPanel("preview")}
+            className={cn(
+              "px-2 sm:px-2.5 py-1.5 rounded-md text-xs border transition flex items-center gap-1.5",
+              rightPanel === "preview"
+                ? "bg-[color-mix(in_srgb,var(--nexus-purple)_15%,transparent)] border-[color-mix(in_srgb,var(--nexus-purple)_40%,transparent)] text-[var(--mode-dev-text)]"
+                : "border-[var(--nexus-border)] text-[var(--muted-foreground)] hover:bg-[var(--nexus-surface-2)] hover:text-[var(--foreground)]"
+            )}
+          >
+            <Play className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">Preview</span>
+          </button>
         </>
       )}
       {activeSession.mode === "learning" && (
@@ -191,9 +220,6 @@ export default function TopBar() {
         <span className="hidden lg:inline">Usage</span>
       </button>
 
-      {/* Theme toggle — compact */}
-      <ThemeToggle compact className="hidden sm:flex" />
-
       {/* Model selector */}
       <div className="relative shrink-0">
         <button
@@ -213,7 +239,7 @@ export default function TopBar() {
                 Switch Model
               </div>
               <div className="overflow-y-auto py-1">
-                {MODELS.map((m) => {
+                {switchableModels.map((m) => {
                   const live = isModelLive(m.id);
                   return (
                     <button
@@ -257,7 +283,7 @@ export default function TopBar() {
                 })}
               </div>
               <button
-                onClick={() => { setModelOpen(false); setShowModelConfig(true); }}
+                onClick={() => { setModelOpen(false); navigate("profile"); }}
                 className="flex shrink-0 items-center gap-2 border-t border-[var(--nexus-border)] px-3 py-2.5 text-xs text-[var(--muted-foreground)] transition hover:bg-[var(--nexus-surface-2)] hover:text-[var(--foreground)]"
               >
                 <KeyRound className="h-3.5 w-3.5" />
@@ -267,6 +293,17 @@ export default function TopBar() {
           </>
         )}
       </div>
+
+      {/* Profile — theme, API keys, GitHub connection all live on the
+          profile page now, not in a popup here. */}
+      <button
+        onClick={() => navigate("profile")}
+        className="shrink-0 rounded-full transition hover:opacity-90"
+        title="Profile & settings"
+        aria-label="Profile & settings"
+      >
+        <Avatar src={user?.avatarUrl} name={user?.name ?? user?.email} className="h-7 w-7" textClassName="text-[10px]" />
+      </button>
     </header>
   );
 }

@@ -6,6 +6,8 @@ import SpecBuilder from "./SpecBuilder";
 import FileTree from "./FileTree";
 import UsagePanel from "./UsagePanel";
 import LearningPanel from "./LearningPanel";
+import PreviewPanel from "./PreviewPanel";
+import UserTestsPanel from "./UserTestsPanel";
 
 export default function RightPanel() {
   const { activeSession, rightPanel, setRightPanel, mobileRightPanelOpen, setMobileRightPanelOpen } = useAppStore();
@@ -30,6 +32,8 @@ export default function RightPanel() {
         {rightPanel === "files" && <FileTree />}
         {rightPanel === "usage" && <UsagePanel />}
         {rightPanel === "learning" && <LearningPanel />}
+        {rightPanel === "preview" && <PreviewPanel />}
+        {rightPanel === "tests" && <UserTestsPanel />}
       </div>
     </div>
   );

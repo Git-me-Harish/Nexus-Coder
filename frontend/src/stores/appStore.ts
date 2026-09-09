@@ -2,7 +2,34 @@
 
 import { create } from "zustand";
 import type { Mode, Phase } from "@/lib/nexus/constants";
-import { PHASE_ROUTING } from "@/lib/nexus/constants";
+import { DEFAULT_MODEL_ID, PHASE_ROUTING } from "@/lib/nexus/constants";
+
+/** Which stage of the backend reasoning graph is currently running.
+ *  Mirrors the `stage` SSE event in app/api/v1/routes/agent_stream.py.
+ *  "acting" means the agent is executing real tools -- writing files to the
+ *  project and running commands in the sandbox. */
+export type AgentStage = "planning" | "answering" | "reviewing" | "revising" | "acting";
+
+/** One real tool execution: a file written, a command run. `ok` is the actual
+ *  outcome (a non-zero exit code, a rejected path), not a prediction. */
+export interface ToolActivity {
+  id: string;
+  name: string;
+  summary: string;
+  step: number;
+  status: "running" | "ok" | "error";
+  preview?: string;
+}
+
+/** The review stage's verdict on a draft answer. */
+export interface Critique {
+  approved: boolean;
+  issues: string[];
+  phaseComplete: boolean;
+  reason: string;
+  /** True while the agent is rewriting a rejected draft. */
+  revising: boolean;
+}
 
 export interface Project {
   id: string;
@@ -32,6 +59,14 @@ export interface Session {
   sandboxPreviewUrl?: string | null;
   githubRepoUrl?: string | null;
   decisionDocUrl?: string | null;
+  // Confirmation gates for the artifact phases (IDEA.md/PLAN.md, written by
+  // the agent via write_file) -- mirrors how Specification.confirmedAt
+  // already gates specification->implementation. See
+  // backend/app/services/session_service.py confirm_idea/confirm_plan.
+  ideaConfirmedAt?: string | null;
+  planConfirmedAt?: string | null;
+  // Set once via the one-time Implementation-phase picker; null until then.
+  buildDepth?: "prototype" | "mvp" | "production" | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -67,7 +102,7 @@ export interface Spec {
 
 interface AppState {
   // Navigation
-  view: "auth" | "landing" | "dashboard" | "session";
+  view: "auth" | "landing" | "dashboard" | "session" | "profile" | "reset";
   // Projects & sessions
   projects: Project[];
   activeProject: Project | null;
@@ -77,10 +112,9 @@ interface AppState {
   files: SessionFile[];
   specs: Spec[];
   // UI
-  rightPanel: "spec" | "files" | "usage" | "learning" | null;
+  rightPanel: "spec" | "files" | "usage" | "learning" | "preview" | "tests" | null;
   showSpecModal: boolean;
   showModelSwitcher: boolean;
-  showModelConfig: boolean;
   // Streaming
   isStreaming: boolean;
   streamingText: string;
@@ -90,6 +124,13 @@ interface AppState {
   streamingModelId: string | null;
   streamingTokensUsed: number;
   streamingTokensBudget: number;
+  // Reasoning pipeline (see backend app/agents/graph.py): the agent plans
+  // before it answers and reviews before it finishes, and these surface that
+  // to the user instead of leaving them watching a spinner.
+  streamingStage: AgentStage | null;
+  streamingReasoning: string;
+  streamingCritique: Critique | null;
+  streamingTools: ToolActivity[];
   lastError: string | null;
   // Actions
   setView: (v: AppState["view"]) => void;
@@ -108,14 +149,28 @@ interface AppState {
   setRightPanel: (p: AppState["rightPanel"]) => void;
   setShowSpecModal: (b: boolean) => void;
   setShowModelSwitcher: (b: boolean) => void;
-  setShowModelConfig: (b: boolean) => void;
   // Mobile UI
   mobileSidebarOpen: boolean;
   setMobileSidebarOpen: (b: boolean) => void;
   mobileRightPanelOpen: boolean;
   setMobileRightPanelOpen: (b: boolean) => void;
+  // Desktop sidebar collapse (mobile keeps its own drawer, unaffected)
+  sidebarCollapsed: boolean;
+  setSidebarCollapsed: (b: boolean) => void;
   startStream: (modelId: string, modelName: string, phase: Phase, worker: string, tokensUsed: number, tokensBudget: number) => void;
   appendToken: (delta: string) => void;
+  appendReasoning: (delta: string) => void;
+  setStreamingStage: (stage: AgentStage | null) => void;
+  setStreamingCritique: (c: Critique | null) => void;
+  /** A tool started executing -- shown immediately, before its outcome is known. */
+  startToolActivity: (t: Omit<ToolActivity, "status">) => void;
+  /** That tool finished; `ok` is what actually happened. */
+  finishToolActivity: (id: string, ok: boolean, preview?: string) => void;
+  /** Drop what has streamed so far for one scope and re-render from empty --
+   *  a provider died mid-answer and we fell back, or a draft was rejected and
+   *  is being replaced by its revision. Without this the user reads the
+   *  abandoned text with the replacement appended to it. */
+  clearStreamScope: (scope: "token" | "reasoning") => void;
   finishStream: () => void;
   failStream: (err: string) => void;
   resetStream: () => void;
@@ -134,7 +189,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   rightPanel: null,
   showSpecModal: false,
   showModelSwitcher: false,
-  showModelConfig: false,
   isStreaming: false,
   streamingText: "",
   streamingPhase: null,
@@ -143,6 +197,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   streamingModelId: null,
   streamingTokensUsed: 0,
   streamingTokensBudget: 0,
+  streamingStage: null,
+  streamingReasoning: "",
+  streamingCritique: null,
+  streamingTools: [],
   lastError: null,
 
   setView: (v) => set({ view: v }),
@@ -185,11 +243,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   setRightPanel: (p) => set({ rightPanel: p }),
   setShowSpecModal: (b) => set({ showSpecModal: b }),
   setShowModelSwitcher: (b) => set({ showModelSwitcher: b }),
-  setShowModelConfig: (b) => set({ showModelConfig: b }),
   mobileSidebarOpen: false,
   setMobileSidebarOpen: (b) => set({ mobileSidebarOpen: b }),
   mobileRightPanelOpen: false,
   setMobileRightPanelOpen: (b) => set({ mobileRightPanelOpen: b }),
+  sidebarCollapsed: false,
+  setSidebarCollapsed: (b) => set({ sidebarCollapsed: b }),
 
   startStream: (modelId, modelName, phase, worker, tokensUsed, tokensBudget) =>
     set({
@@ -201,13 +260,32 @@ export const useAppStore = create<AppState>((set, get) => ({
       streamingModelId: modelId,
       streamingTokensUsed: tokensUsed,
       streamingTokensBudget: tokensBudget,
+      streamingStage: null,
+      streamingReasoning: "",
+      streamingCritique: null,
+      streamingTools: [],
       lastError: null,
     }),
   appendToken: (delta) =>
     set((st) => ({ streamingText: st.streamingText + delta })),
+  appendReasoning: (delta) =>
+    set((st) => ({ streamingReasoning: st.streamingReasoning + delta })),
+  setStreamingStage: (stage) => set({ streamingStage: stage }),
+  setStreamingCritique: (c) => set({ streamingCritique: c }),
+  startToolActivity: (t) =>
+    set((st) => ({ streamingTools: [...st.streamingTools, { ...t, status: "running" }] })),
+  finishToolActivity: (id, ok, preview) =>
+    set((st) => ({
+      streamingTools: st.streamingTools.map((t) =>
+        t.id === id ? { ...t, status: ok ? "ok" : "error", preview } : t
+      ),
+    })),
+  clearStreamScope: (scope) =>
+    set(scope === "reasoning" ? { streamingReasoning: "" } : { streamingText: "" }),
   finishStream: () =>
     set((st) => ({
       isStreaming: false,
+      streamingStage: null,
       messages: [
         ...st.messages,
         {
@@ -231,6 +309,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       streamingWorker: null,
       streamingModel: null,
       streamingModelId: null,
+      streamingStage: null,
+      streamingReasoning: "",
+      streamingCritique: null,
+      streamingTools: [],
       lastError: null,
     }),
   updateActiveSession: (patch) =>
@@ -239,5 +321,5 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 export function pickModelForPhase(phase: Phase, baseModelId?: string | null): string {
   if (baseModelId) return baseModelId;
-  return PHASE_ROUTING[phase] ?? "claude-sonnet-4-6";
+  return PHASE_ROUTING[phase] ?? DEFAULT_MODEL_ID;
 }

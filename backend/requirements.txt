@@ -27,3 +27,7 @@ groq==0.37.1
 
 httpx==0.28.1
 python-multipart==0.0.20
+
+# Sandboxed execution of agent-written code (app/agents/sandbox.py). Talks to
+# the Docker daemon; the API server never runs generated code itself.
+docker==7.1.0
