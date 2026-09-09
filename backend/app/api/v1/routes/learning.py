@@ -33,7 +33,7 @@ async def list_topics(session_id: str, auth: CurrentAuth, db: TenantDb):
 
 @router.post("/{session_id}/learning/start")
 async def start_topic(session_id: str, payload: StartTopicRequest, auth: CurrentAuth, db: TenantDb):
-    session = await session_service.get_session(db, auth.tenant_id, session_id)
+    session = await session_service.get_session(db, auth.tenant_id, auth.user_id, session_id)
     if session.mode != "learning":
         raise api_error(400, "WRONG_MODE", "Learning topics can only be started in learning sessions.")
 
@@ -76,7 +76,7 @@ async def advance_topic(session_id: str, topic_id: str, auth: CurrentAuth, db: T
         raise api_error(400, "ALREADY_COMPLETED")
 
     topic.stage = target
-    session = await session_service.get_session(db, auth.tenant_id, session_id)
+    session = await session_service.get_session(db, auth.tenant_id, auth.user_id, session_id)
     session.current_phase = "explain" if target == "completed" else target
     await db.commit()
     await db.refresh(topic)
@@ -103,7 +103,7 @@ async def submit_quiz(session_id: str, topic_id: str, payload: SubmitQuizRequest
 
     mastery = await learning_engine.recompute_mastery(db, auth.user_id, topic.topic_slug, score)
 
-    session = await session_service.get_session(db, auth.tenant_id, session_id)
+    session = await session_service.get_session(db, auth.tenant_id, auth.user_id, session_id)
     session.current_phase = "explain"
     await db.commit()
     await db.refresh(topic)

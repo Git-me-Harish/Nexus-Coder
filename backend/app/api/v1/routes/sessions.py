@@ -77,3 +77,19 @@ async def delete_session(session_id: str, auth: CurrentAuth, db: TenantDb):
 async def switch_model(session_id: str, payload: SwitchModelRequest, auth: CurrentAuth, db: TenantDb):
     session, previous = await session_service.switch_model(db, auth.tenant_id, auth.user_id, session_id, payload.model_id)
     return {"session": SessionOut.model_validate(session), "from": previous, "to": payload.model_id}
+
+
+@router.patch("/{session_id}/idea/confirm")
+async def confirm_idea(session_id: str, auth: CurrentAuth, db: TenantDb):
+    """Confirms IDEA.md (written by the agent via write_file during Ideation)
+    as ground truth for Planning. See session_service.confirm_idea."""
+    session = await session_service.confirm_idea(db, auth.tenant_id, auth.user_id, session_id)
+    return {"session": SessionOut.model_validate(session)}
+
+
+@router.patch("/{session_id}/plan/confirm")
+async def confirm_plan(session_id: str, auth: CurrentAuth, db: TenantDb):
+    """Confirms PLAN.md as ground truth for Specification. See
+    session_service.confirm_plan."""
+    session = await session_service.confirm_plan(db, auth.tenant_id, auth.user_id, session_id)
+    return {"session": SessionOut.model_validate(session)}

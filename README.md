@@ -73,6 +73,60 @@ nexus-fullstack/
                      PostgreSQL
 ```
 
+## The agent loop
+
+A turn is not a single model call. On the phases that produce artifacts
+(implementation, debug, review) the agent plans, then acts with real tools,
+then reviews its own work against what actually happened:
+
+```text
+  START ─(plan-worthy phase?)─┬─> planner ──┐
+                              └─────────────┴─> executor ──> critic ─┬─> executor (revise)
+                                                  │   ▲              └─> END
+                                       tool calls │   │ real results
+                                                  ▼   │
+                                        ┌──────────────────────┐
+                                        │  write_file  read_file│
+                                        │  list_files  run_command
+                                        └──────────┬───────────┘
+                                                   ▼
+                                     workspace on disk + Docker sandbox
+                                     (offline, non-root, read-only rootfs)
+```
+
+- **planner** — emits a structured plan (goal / steps / risks / success
+  criteria) that the executor follows and the critic scores against.
+- **executor** — a ReAct loop. Its tool calls really execute: files land on
+  disk and in Postgres, commands run in a container and return real exit
+  codes and stderr, which the model must react to. Bounded by
+  `MAX_TOOL_STEPS`.
+- **critic** — judges the result against the plan, the phase's exit
+  criteria, and the **tool trace**, so "the tests pass" is checked against
+  whether a command actually ran rather than taken on faith. It also decides
+  whether the phase is finished, which is what advances the session.
+
+Conversational phases (ideation, discussion, explain…) are deliberately a
+single call with no tools — a model handed tools answers differently even
+when it uses none.
+
+## Enabling code execution
+
+Off by default. With it on, the agent can run the code it writes, which is
+what lets it prove the tests pass instead of asserting they would.
+
+```bash
+docker build -t nexus-sandbox:latest backend/sandbox/
+# then in backend/.env
+SANDBOX_ENABLED=true
+```
+
+Execution **only ever happens inside Docker** — network disabled, non-root,
+read-only root filesystem, CPU/memory/PID/output/time limits, and the
+session's workspace as the sole writable mount. If Docker is unavailable the
+tool returns an error; there is deliberately no fallback that runs
+model-written code on the host. `GET /health` reports whether the sandbox is
+actually usable.
+
 ---
 
 # Frontend Migration

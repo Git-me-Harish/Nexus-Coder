@@ -47,3 +47,10 @@ env/
 .env.*
 !.env.example
 !.env.local.example
+# Agent session workspaces -- machine-local working copies mounted into the
+# execution sandbox. The durable record is the SessionFile rows in Postgres,
+# so these are disposable and must never be committed (they hold user code).
+.nexus-workspaces/
+
+# User-uploaded profile avatars (app/services/avatar_service.py).
+.nexus-uploads/

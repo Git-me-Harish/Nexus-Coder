@@ -1,7 +1,16 @@
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.constants import PHASE_ROUTING, get_model, initial_phase_for_mode, next_phase, requires_approval
+from app.agents.constants import (
+    DEFAULT_MODEL_ID,
+    PHASE_ROUTING,
+    get_model,
+    initial_phase_for_mode,
+    next_phase,
+    requires_approval,
+)
 from app.core.exceptions import api_error
 from app.models.message import Message, Specification
 from app.models.project import Project
@@ -20,7 +29,7 @@ async def create_session(db: AsyncSession, tenant_id: str, user_id: str, payload
     session = AgentSession(
         project_id=payload.project_id, tenant_id=tenant_id, user_id=user_id,
         mode=payload.mode, current_phase=initial_phase,
-        base_model_id=payload.base_model_id or PHASE_ROUTING.get(initial_phase, "claude-sonnet-4-6"),
+        base_model_id=payload.base_model_id or PHASE_ROUTING.get(initial_phase, DEFAULT_MODEL_ID),
         tokens_budget=500_000, title=payload.title or f"New {payload.mode} session",
     )
     db.add(session)
@@ -71,16 +80,61 @@ async def advance_phase(db: AsyncSession, tenant_id: str, user_id: str, session_
         raise api_error(400, "NO_NEXT_PHASE")
 
     if requires_approval(session.current_phase, resolved_target):
-        spec = (await db.execute(
-            select(Specification).where(Specification.session_id == session.id, Specification.is_current.is_(True))
-        )).scalar_one_or_none()
-        if not spec or not spec.confirmed_at:
-            raise api_error(
-                409, "SPEC_NOT_CONFIRMED",
-                "Specification must be confirmed before the Implementation phase can begin.",
-            )
+        # Each gated transition checks its OWN confirmation flag -- this is
+        # the durable check that holds regardless of what the agent's critic
+        # believed about phase_complete (see PHASE_EXIT_CRITERIA's note in
+        # app/agents/prompts.py). IDEA.md/PLAN.md are workspace files, not DB
+        # rows, so their confirmation is a plain timestamp on the session
+        # itself rather than a related row like Specification.confirmed_at.
+        if session.current_phase == "ideation":
+            if not session.idea_confirmed_at:
+                raise api_error(
+                    409, "IDEA_NOT_CONFIRMED",
+                    "IDEA.md must be confirmed before the Planning phase can begin.",
+                )
+        elif session.current_phase == "planning":
+            if not session.plan_confirmed_at:
+                raise api_error(
+                    409, "PLAN_NOT_CONFIRMED",
+                    "PLAN.md must be confirmed before the Specification phase can begin.",
+                )
+        elif session.current_phase == "specification":
+            spec = (await db.execute(
+                select(Specification).where(Specification.session_id == session.id, Specification.is_current.is_(True))
+            )).scalar_one_or_none()
+            if not spec or not spec.confirmed_at:
+                raise api_error(
+                    409, "SPEC_NOT_CONFIRMED",
+                    "Specification must be confirmed before the Implementation phase can begin.",
+                )
 
     session.current_phase = resolved_target
+    await db.commit()
+    await db.refresh(session)
+    return session
+
+
+async def confirm_idea(db: AsyncSession, tenant_id: str, user_id: str, session_id: str) -> AgentSession:
+    """
+    Confirms IDEA.md as ground truth for Planning. Unlike Specification,
+    there's no separate row to validate against -- IDEA.md is a workspace
+    file the agent wrote with write_file, and its existence is enforced by
+    the phase's own exit criteria (the critic won't mark ideation
+    phase_complete without it) rather than re-checked here. This endpoint is
+    purely the user's explicit sign-off.
+    """
+    session = await get_session(db, tenant_id, user_id, session_id)
+    session.idea_confirmed_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(session)
+    return session
+
+
+async def confirm_plan(db: AsyncSession, tenant_id: str, user_id: str, session_id: str) -> AgentSession:
+    """Confirms PLAN.md as ground truth for Specification. See confirm_idea's
+    docstring -- same pattern, same reasoning."""
+    session = await get_session(db, tenant_id, user_id, session_id)
+    session.plan_confirmed_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(session)
     return session

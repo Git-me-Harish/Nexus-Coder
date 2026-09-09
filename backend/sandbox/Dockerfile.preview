@@ -1,0 +1,26 @@
+# Execution image for the Review phase's live preview -- NOT the same image
+# as the agent's build sandbox (Dockerfile in this same directory).
+#
+#   docker build -t nexus-preview:latest -f backend/sandbox/Dockerfile.preview backend/sandbox/
+#
+# The build sandbox is deliberately offline (network_mode="none"), so a
+# generated app's dependencies are only ever what's preinstalled in an
+# image -- never `pip install`ed or `npm install`ed at build time. This image
+# is what "preinstalled" means for the preview step: FastAPI/Flask/uvicorn
+# baked in, so a Python web app the agent wrote can actually be started here
+# even though it was never able to install anything itself.
+#
+# This is why live preview does not support Node/npm projects: their
+# dependencies were never installed anywhere, and running THIS container
+# with network access doesn't retroactively install them. See
+# app/agents/preview.py's detect_app for the explicit "unsupported" path.
+FROM python:3.12-slim-bookworm
+
+RUN pip install --no-cache-dir fastapi uvicorn[standard] flask
+
+RUN useradd --uid 1000 --create-home --shell /bin/bash agent
+
+WORKDIR /workspace
+USER 1000:1000
+
+CMD ["/bin/sh"]

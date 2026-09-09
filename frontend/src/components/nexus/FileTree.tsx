@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, Folder, ChevronRight, ChevronDown, Download, Github, RefreshCw, FileCode2 } from "lucide-react";
+import { FileText, Folder, ChevronRight, ChevronDown, Download, Github, RefreshCw, FileCode2, ExternalLink } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
+import { useAuthStore } from "@/stores/authStore";
+import { api } from "@/lib/nexus/client";
 import { cn } from "@/lib/utils";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -45,9 +47,11 @@ function buildTree(files: { filePath: string; language?: string | null }[]): Tre
 }
 
 export default function FileTree() {
-  const { files, activeSession } = useAppStore();
+  const { files, activeSession, updateActiveSession } = useAppStore();
   const [selected, setSelected] = useState<string | null>(files[0]?.filePath ?? null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set([""]));
+  const [exporting, setExporting] = useState(false);
+  const [pushing, setPushing] = useState(false);
 
   if (!activeSession) return null;
 
@@ -63,11 +67,62 @@ export default function FileTree() {
     });
   }
 
-  function exportZip() {
-    toast.success("ZIP export queued — S3 signed URL will appear here shortly.");
+  /** Fetch-and-download rather than a plain <a href> -- the export endpoint
+   *  requires the same bearer auth every other API call uses, and a bare
+   *  navigation/anchor click can't attach an Authorization header. */
+  async function exportZip() {
+    if (!activeSession || exporting) return;
+    setExporting(true);
+    try {
+      const res = await fetch(api.files.exportZipUrl(activeSession.id), {
+        headers: { Authorization: `Bearer ${useAuthStore.getState().token ?? ""}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error?.message ?? `Export failed (HTTP ${res.status})`);
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? "project.zip";
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`Downloaded ${filename}`);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Export failed");
+    } finally {
+      setExporting(false);
+    }
   }
-  function pushGithub() {
-    toast.success("Pushing to GitHub — check the session header in a moment.");
+
+  async function pushGithub() {
+    if (!activeSession || pushing) return;
+    setPushing(true);
+    try {
+      const status = await api.github.status();
+      if (!status.connected) {
+        const { url } = await api.github.authorizeUrl();
+        window.location.href = url;
+        return;
+      }
+      toast.info("Pushing to GitHub…");
+      const { repoUrl } = await api.github.push(activeSession.id);
+      updateActiveSession({ githubRepoUrl: repoUrl });
+      toast.success("Pushed to GitHub", {
+        description: repoUrl,
+        action: { label: "Open", onClick: () => window.open(repoUrl, "_blank") },
+      });
+    } catch (e: any) {
+      toast.error(e?.message ?? "GitHub push failed");
+    } finally {
+      setPushing(false);
+    }
   }
 
   return (
@@ -78,19 +133,30 @@ export default function FileTree() {
           <p className="text-[11px] text-[var(--muted-foreground)]">{files.length} files · sandbox: {activeSession.sandboxStatus ?? "none"}</p>
         </div>
         <div className="flex items-center gap-1">
+          {activeSession.githubRepoUrl && (
+            <button
+              onClick={() => window.open(activeSession.githubRepoUrl!, "_blank")}
+              className="p-1.5 rounded-md text-[var(--muted-foreground)] hover:text-white hover:bg-[var(--nexus-surface-2)] transition"
+              title="View on GitHub"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             onClick={exportZip}
-            className="p-1.5 rounded-md text-[var(--muted-foreground)] hover:text-white hover:bg-[var(--nexus-surface-2)] transition"
+            disabled={exporting || files.length === 0}
+            className="p-1.5 rounded-md text-[var(--muted-foreground)] hover:text-white hover:bg-[var(--nexus-surface-2)] transition disabled:opacity-30"
             title="Export ZIP"
           >
-            <Download className="w-3.5 h-3.5" />
+            {exporting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
           </button>
           <button
             onClick={pushGithub}
-            className="p-1.5 rounded-md text-[var(--muted-foreground)] hover:text-white hover:bg-[var(--nexus-surface-2)] transition"
-            title="Push to GitHub"
+            disabled={pushing || files.length === 0}
+            className="p-1.5 rounded-md text-[var(--muted-foreground)] hover:text-white hover:bg-[var(--nexus-surface-2)] transition disabled:opacity-30"
+            title={activeSession.githubRepoUrl ? "Push updates to GitHub" : "Push to GitHub"}
           >
-            <Github className="w-3.5 h-3.5" />
+            {pushing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Github className="w-3.5 h-3.5" />}
           </button>
         </div>
       </div>

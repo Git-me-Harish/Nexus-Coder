@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Send, User, Sparkles, AlertCircle, Loader2 } from "lucide-react";
+import { Send, User, Sparkles, AlertCircle, Loader2, Brain, Check } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
+import type { AgentStage, Critique, ToolActivity, Session, SessionFile } from "@/stores/appStore";
 import { useAuthStore } from "@/stores/authStore";
+import { navigate } from "@/hooks/use-hash-router";
 import { api, handleUnauthorized, tryRefresh } from "@/lib/nexus/client";
 import MarkdownRenderer from "./MarkdownRenderer";
 import QuizInterface from "./QuizInterface";
@@ -15,16 +17,233 @@ function looksLikeQuiz(text: string): boolean {
   return /\*\*Q\d/i.test(text) && /Answer Key/i.test(text);
 }
 
+/** What the agent is doing right now, for the pre-output spinner. The agent
+ *  plans and self-reviews around the answer, so "thinking" is no longer a
+ *  euphemism for "waiting" — see backend app/agents/graph.py. */
+function stageLabel(stage: AgentStage | null, worker: string | null): string {
+  switch (stage) {
+    case "planning": return "Planning the approach…";
+    case "answering": return `Working — ${worker} worker…`;
+    case "reviewing": return "Reviewing its own output…";
+    case "revising": return "Revising after review…";
+    default: return `Initializing ${worker} worker…`;
+  }
+}
+
+/** What the agent actually DID this turn: files written, commands run, and
+ *  whether each one really succeeded. These are live executions, not a
+ *  narration of intent -- an "error" row means a command genuinely exited
+ *  non-zero or a path was genuinely rejected. */
+function ToolTrace({ tools }: { tools: ToolActivity[] }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  return (
+    <div className="ml-10 space-y-1">
+      {tools.map((t) => {
+        const hasDetail = Boolean(t.preview);
+        return (
+          <div key={t.id} className="rounded-md border border-[var(--nexus-border)] bg-[var(--nexus-surface)]/40 text-xs">
+            <button
+              disabled={!hasDetail}
+              onClick={() => setExpanded(expanded === t.id ? null : t.id)}
+              className={cn(
+                "flex w-full items-center gap-2 px-2.5 py-1.5 text-left",
+                hasDetail && "hover:bg-[var(--nexus-surface-2)] transition"
+              )}
+            >
+              {t.status === "running" ? (
+                <Loader2 className="w-3 h-3 shrink-0 animate-spin text-[var(--nexus-purple)]" />
+              ) : t.status === "ok" ? (
+                <Check className="w-3 h-3 shrink-0 text-[var(--nexus-success)]" />
+              ) : (
+                <AlertCircle className="w-3 h-3 shrink-0 text-[var(--nexus-error)]" />
+              )}
+              <code className="truncate font-mono text-[11px] text-[var(--foreground)]">{t.summary}</code>
+              {hasDetail && (
+                <span className="ml-auto shrink-0 text-[10px] text-[var(--muted-foreground)]">
+                  {expanded === t.id ? "hide" : "output"}
+                </span>
+              )}
+            </button>
+            {expanded === t.id && t.preview && (
+              <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words border-t border-[var(--nexus-border)] px-2.5 py-1.5 font-mono text-[10px] leading-relaxed text-[var(--muted-foreground)]">
+                {t.preview}
+              </pre>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Confirmation gates for the artifact-producing phases, and the one-time
+ * build-depth picker for Implementation. Mirrors the existing Specification
+ * confirm flow (SpecBuilder.tsx) but for the two workspace-file artifacts
+ * (IDEA.md / PLAN.md) the agent writes with write_file rather than a
+ * dedicated DB row -- see backend/app/services/session_service.py
+ * confirm_idea/confirm_plan.
+ */
+function PhaseArtifactGate({
+  session, files, confirming, onConfirmIdea, onConfirmPlan, onSetBuildDepth,
+}: {
+  session: Session;
+  files: SessionFile[];
+  confirming: boolean;
+  onConfirmIdea: () => void;
+  onConfirmPlan: () => void;
+  onSetBuildDepth: (depth: "prototype" | "mvp" | "production") => void;
+}) {
+  if (session.mode !== "development") return null;
+  const hasFile = (name: string) => files.some((f) => f.filePath === name);
+
+  if (session.currentPhase === "ideation" && hasFile("IDEA.md") && !session.ideaConfirmedAt) {
+    return (
+      <div className="mx-3 sm:mx-6 mb-2 flex items-center justify-between gap-3 rounded-lg border border-[var(--nexus-purple)]/40 bg-[color-mix(in_srgb,var(--nexus-purple)_10%,transparent)] px-3 py-2 text-xs">
+        <span className="text-[var(--foreground)]">
+          <strong>IDEA.md</strong> is ready — review it in the Files panel, then confirm to unlock Planning.
+        </span>
+        <button
+          onClick={onConfirmIdea}
+          disabled={confirming}
+          className="shrink-0 rounded-md bg-[var(--nexus-purple)] px-3 py-1.5 text-xs font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+        >
+          Confirm this direction
+        </button>
+      </div>
+    );
+  }
+
+  if (session.currentPhase === "planning" && hasFile("PLAN.md") && !session.planConfirmedAt) {
+    return (
+      <div className="mx-3 sm:mx-6 mb-2 flex items-center justify-between gap-3 rounded-lg border border-[var(--nexus-purple)]/40 bg-[color-mix(in_srgb,var(--nexus-purple)_10%,transparent)] px-3 py-2 text-xs">
+        <span className="text-[var(--foreground)]">
+          <strong>PLAN.md</strong> is ready — review it in the Files panel, then confirm to unlock Specification.
+        </span>
+        <button
+          onClick={onConfirmPlan}
+          disabled={confirming}
+          className="shrink-0 rounded-md bg-[var(--nexus-purple)] px-3 py-1.5 text-xs font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+        >
+          Confirm this plan
+        </button>
+      </div>
+    );
+  }
+
+  if (session.currentPhase === "implementation" && !session.buildDepth) {
+    const options: Array<{ value: "prototype" | "mvp" | "production"; label: string; hint: string }> = [
+      { value: "prototype", label: "Prototype / demo", hint: "Fastest — core flow only, polish skipped" },
+      { value: "mvp", label: "Functional MVP", hint: "Primary flows work for real, basic validation" },
+      { value: "production", label: "Production-grade", hint: "Full validation, error handling, tests" },
+    ];
+    return (
+      <div className="mx-3 sm:mx-6 mb-2 rounded-lg border border-[var(--nexus-purple)]/40 bg-[color-mix(in_srgb,var(--nexus-purple)_10%,transparent)] px-3 py-2.5 text-xs">
+        <div className="mb-2 font-medium text-[var(--foreground)]">
+          Before I start building — how should I approach this?
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => onSetBuildDepth(opt.value)}
+              className="flex-1 rounded-md border border-[var(--nexus-border)] bg-[var(--nexus-surface)] px-3 py-2 text-left transition hover:border-[var(--nexus-purple)] hover:bg-[var(--nexus-surface-2)]"
+            >
+              <div className="font-medium text-[var(--foreground)]">{opt.label}</div>
+              <div className="text-[10px] text-[var(--muted-foreground)]">{opt.hint}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+/** The agent's plan and self-review, shown above the answer it produced.
+ *  Collapsed by default: it is useful when you want to know why the agent did
+ *  what it did, and noise the rest of the time. */
+function ReasoningTrace({
+  stage, reasoning, critique,
+}: {
+  stage: AgentStage | null;
+  reasoning: string;
+  critique: Critique | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const rejected = critique && !critique.approved;
+
+  return (
+    <div className="ml-10 rounded-lg border border-[var(--nexus-border)] bg-[var(--nexus-surface)]/50 text-xs">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition"
+      >
+        <Brain className="w-3.5 h-3.5 shrink-0" />
+        <span className="font-medium">
+          {stage === "planning" ? "Planning…" : "Reasoning"}
+        </span>
+        {critique?.revising && (
+          <span className="rounded bg-[color-mix(in_srgb,var(--nexus-error)_18%,transparent)] px-1.5 py-0.5 text-[10px] text-[var(--nexus-error)]">
+            revising
+          </span>
+        )}
+        {critique && !critique.revising && (
+          <span
+            className={cn(
+              "rounded px-1.5 py-0.5 text-[10px]",
+              rejected
+                ? "bg-[color-mix(in_srgb,var(--nexus-error)_18%,transparent)] text-[var(--nexus-error)]"
+                : "bg-[color-mix(in_srgb,var(--nexus-purple)_18%,transparent)] text-[var(--nexus-purple)]"
+            )}
+          >
+            {rejected ? "revised" : "reviewed"}
+          </span>
+        )}
+        <span className="ml-auto text-[10px]">{open ? "hide" : "show"}</span>
+      </button>
+
+      {open && (
+        <div className="space-y-2 border-t border-[var(--nexus-border)] px-3 py-2">
+          {reasoning && (
+            <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+              {reasoning}
+            </pre>
+          )}
+          {critique && (
+            <div className="text-[11px] text-[var(--muted-foreground)]">
+              <span className="font-medium text-[var(--foreground)]">Self-review: </span>
+              {critique.reason || (critique.approved ? "Approved." : "Rejected.")}
+              {critique.issues.length > 0 && (
+                <ul className="mt-1 list-disc pl-4">
+                  {critique.issues.map((issue, i) => <li key={i}>{issue}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ChatPanel() {
   const {
     activeSession, messages, appendMessage, setMessages,
     isStreaming, streamingText, streamingPhase, streamingWorker,
     streamingModel, streamingTokensUsed, streamingTokensBudget,
+    streamingStage, streamingReasoning, streamingCritique, streamingTools,
     startStream, appendToken, finishStream, failStream, resetStream,
-    setFiles, updateActiveSession, setShowModelConfig,
+    appendReasoning, setStreamingStage, setStreamingCritique, clearStreamScope,
+    startToolActivity, finishToolActivity,
+    setFiles, updateActiveSession,
+    files,
   } = useAppStore();
 
   const [input, setInput] = useState("");
+  const [confirmingArtifact, setConfirmingArtifact] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -66,6 +285,11 @@ export default function ChatPanel() {
     );
   }
 
+  const needsBuildDepth =
+    activeSession.mode === "development" &&
+    activeSession.currentPhase === "implementation" &&
+    !activeSession.buildDepth;
+
   async function send() {
     if (!input.trim() || !activeSession) return;
     const content = input.trim();
@@ -81,6 +305,44 @@ export default function ChatPanel() {
     });
 
     await streamAgent(content);
+  }
+
+  async function confirmIdea() {
+    if (!activeSession) return;
+    setConfirmingArtifact(true);
+    try {
+      const { session } = await api.sessions.confirmIdea(activeSession.id);
+      updateActiveSession({ ideaConfirmedAt: session.ideaConfirmedAt });
+      toast.success("Idea confirmed — Planning can begin.");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to confirm the idea");
+    } finally {
+      setConfirmingArtifact(false);
+    }
+  }
+
+  async function confirmPlan() {
+    if (!activeSession) return;
+    setConfirmingArtifact(true);
+    try {
+      const { session } = await api.sessions.confirmPlan(activeSession.id);
+      updateActiveSession({ planConfirmedAt: session.planConfirmedAt });
+      toast.success("Plan confirmed — Specification can begin.");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to confirm the plan");
+    } finally {
+      setConfirmingArtifact(false);
+    }
+  }
+
+  async function setBuildDepth(depth: "prototype" | "mvp" | "production") {
+    if (!activeSession) return;
+    try {
+      const { session } = await api.sessions.update(activeSession.id, { buildDepth: depth });
+      updateActiveSession({ buildDepth: session.buildDepth });
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to set build depth");
+    }
   }
 
   async function fetchStream(userMessage: string, _retried = false): Promise<Response> {
@@ -149,6 +411,40 @@ export default function ChatPanel() {
             );
           } else if (event === "token") {
             appendToken(data.content);
+          } else if (event === "stage") {
+            setStreamingStage(data.stage);
+          } else if (event === "reasoning") {
+            appendReasoning(data.content);
+          } else if (event === "stream_reset") {
+            // The text streamed so far for this scope is being abandoned --
+            // a provider died mid-answer and we fell back, or a rejected
+            // draft is about to be replaced. Clear it so the replacement
+            // renders on its own rather than appended to the dead text.
+            clearStreamScope(data.scope === "reasoning" ? "reasoning" : "token");
+          } else if (event === "tool_call") {
+            // A real action is starting: a file write, or a command in the
+            // sandbox. Shown before the outcome is known so the user can see
+            // what the agent is doing while it does it.
+            startToolActivity({
+              id: data.id,
+              name: data.name,
+              summary: data.summary,
+              step: data.step,
+            });
+          } else if (event === "tool_result") {
+            finishToolActivity(data.id, data.ok, data.preview);
+          } else if (event === "critique") {
+            setStreamingCritique({
+              approved: data.approved,
+              issues: data.issues ?? [],
+              phaseComplete: data.phase_complete,
+              reason: data.reason ?? "",
+              revising: data.revising ?? false,
+            });
+          } else if (event === "phase_advanced") {
+            toast.success(`${data.from} complete — moving to ${data.to}`, {
+              description: data.reason || undefined,
+            });
           } else if (event === "provider_fallback") {
             toast.warning(`Falling back to ${data.fallback_provider} (${data.fallback_model}) — ${data.reason?.split(".")[0]}`, {
               duration: 6000,
@@ -172,7 +468,7 @@ export default function ChatPanel() {
                 duration: 10000,
                 action: {
                   label: "Configure Models",
-                  onClick: () => setShowModelConfig(true),
+                  onClick: () => navigate("profile"),
                 },
               });
             } else {
@@ -224,6 +520,18 @@ export default function ChatPanel() {
           <MessageBubble key={m.id} role={m.role} content={m.content} phase={m.phase} modelId={m.modelId} />
         ))}
 
+        {isStreaming && (streamingReasoning || streamingCritique) && (
+          <ReasoningTrace
+            stage={streamingStage}
+            reasoning={streamingReasoning}
+            critique={streamingCritique}
+          />
+        )}
+
+        {isStreaming && streamingTools.length > 0 && (
+          <ToolTrace tools={streamingTools} />
+        )}
+
         {isStreaming && (
           <MessageBubble
             role="assistant"
@@ -240,10 +548,21 @@ export default function ChatPanel() {
         {isStreaming && !streamingText && (
           <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)] ml-10">
             <Loader2 className="w-3 h-3 animate-spin" />
-            Initializing {streamingWorker} worker…
+            {stageLabel(streamingStage, streamingWorker)}
           </div>
         )}
       </div>
+
+      {/* Confirmation gates: IDEA.md/PLAN.md confirm, and the one-time
+          build-depth picker that blocks the input below until answered. */}
+      <PhaseArtifactGate
+        session={activeSession}
+        files={files}
+        confirming={confirmingArtifact}
+        onConfirmIdea={confirmIdea}
+        onConfirmPlan={confirmPlan}
+        onSetBuildDepth={setBuildDepth}
+      />
 
       {/* Input */}
       <div className="px-3 sm:px-6 pb-3 sm:pb-4 pt-2 border-t border-[var(--nexus-border)] bg-[var(--nexus-bg)]/40 safe-bottom">
@@ -254,17 +573,21 @@ export default function ChatPanel() {
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                if (!isStreaming) send();
+                if (!isStreaming && !needsBuildDepth) send();
               }
             }}
-            placeholder={inputPlaceholder(activeSession.mode, activeSession.currentPhase)}
+            placeholder={
+              needsBuildDepth
+                ? "Pick a build depth above before we start…"
+                : inputPlaceholder(activeSession.mode, activeSession.currentPhase)
+            }
             rows={3}
-            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 pr-12 sm:pr-14 rounded-xl bg-[var(--nexus-surface)] border border-[var(--nexus-border)] focus:border-[color-mix(in_srgb,var(--nexus-purple)_50%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--nexus-purple)_20%,transparent)] text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] resize-none transition"
-            disabled={isStreaming}
+            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 pr-12 sm:pr-14 rounded-xl bg-[var(--nexus-surface)] border border-[var(--nexus-border)] focus:border-[color-mix(in_srgb,var(--nexus-purple)_50%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--nexus-purple)_20%,transparent)] text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] resize-none transition disabled:opacity-60"
+            disabled={isStreaming || needsBuildDepth}
           />
           <button
             onClick={isStreaming ? stop : send}
-            disabled={!isStreaming && !input.trim()}
+            disabled={!isStreaming && (!input.trim() || needsBuildDepth)}
             className={cn(
               "absolute right-2.5 sm:right-3 bottom-2.5 sm:bottom-3 w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center transition",
               isStreaming

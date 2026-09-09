@@ -19,17 +19,27 @@ ProviderNotConfiguredError -- distinct from a mid-stream failure, so the
 caller can tell the user exactly what to fix (open Configure Models)
 instead of a generic "try again."
 """
+import logging
 from collections.abc import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.constants import DEFAULT_FALLBACK_ORDER, FALLBACK_MODEL_FOR_PROVIDER, MODEL_REGISTRY
 from app.agents.providers.anthropic_provider import AnthropicProvider
-from app.agents.providers.base import ModelProvider, ProviderError, ProviderNotConfiguredError, StreamChunk
+from app.agents.providers.base import (
+    AgentMessage,
+    ModelProvider,
+    ProviderError,
+    ProviderNotConfiguredError,
+    StreamChunk,
+    ToolSpec,
+)
 from app.agents.providers.gemini_provider import GeminiProvider
 from app.agents.providers.groq_provider import GroqProvider
 from app.agents.providers.openai_provider import OpenAIProvider
 from app.services import credential_service
+
+logger = logging.getLogger("nexus.providers.router")
 
 _PROVIDERS: dict[str, type[ModelProvider]] = {
     "anthropic": AnthropicProvider,
@@ -51,17 +61,39 @@ def _resolve_provider_order(model_id: str) -> tuple[list[str], bool]:
 
 
 async def route_and_stream(
-    *, db: AsyncSession, tenant_id: str, system_prompt: str, messages: list[dict],
+    *, db: AsyncSession, tenant_id: str, system_prompt: str, messages: list[AgentMessage],
     model_id: str, fallback_log: list[dict] | None = None,
+    tools: list[ToolSpec] | None = None,
 ) -> AsyncIterator[tuple[StreamChunk, ModelProvider]]:
+    """
+    `messages` is the normalized AgentMessage list (see providers/base.py) --
+    provider-neutral on purpose, so a conversation that already contains tool
+    calls can still be replayed to a different provider when the primary one
+    fails mid-session.
+    """
     order, is_auto_pick = _resolve_provider_order(model_id)
 
     last_error: Exception | None = None
     any_key_found = False
 
+    # Once the conversation contains tool calls, not every provider can pick it
+    # up: Gemini requires its own thought_signature on each replayed
+    # functionCall and 400s on one another vendor produced. Filtering here --
+    # rather than discovering it as a hard error at the end of the chain --
+    # is what keeps a transient blip on the primary provider from turning a
+    # working agent turn into a failed one.
+    has_foreign_tool_calls = any(m.get("tool_calls") for m in messages)
+
     for i, provider_name in enumerate(order):
         provider_cls = _PROVIDERS.get(provider_name)
         if provider_cls is None:
+            continue
+
+        if has_foreign_tool_calls and i > 0 and not provider_cls.accepts_foreign_tool_calls:
+            logger.info(
+                "skipping %s in fallback: it cannot accept tool calls made by another provider",
+                provider_name,
+            )
             continue
 
         api_key = await credential_service.resolve_api_key(db, tenant_id, provider_name)
@@ -81,14 +113,25 @@ async def route_and_stream(
                 else (str(last_error) if last_error else "Primary provider unavailable."),
             })
 
+        # Tracked per attempt: a provider that dies *after* emitting text
+        # leaves partial output in the consumer's accumulator. Falling back
+        # without telling the consumer to drop it produces a message that is
+        # the aborted attempt's prefix glued onto the next provider's full
+        # response -- garbage that then gets persisted, rendered, and parsed
+        # for file blocks. The reset chunk below is that signal.
+        emitted_any = False
         try:
             async for chunk in provider.stream_completion(
-                system_prompt=system_prompt, messages=messages, model_id=effective_model_id
+                system_prompt=system_prompt, messages=messages,
+                model_id=effective_model_id, tools=tools,
             ):
+                emitted_any = emitted_any or bool(chunk.delta)
                 yield chunk, provider
             return
         except ProviderError as exc:
             last_error = exc
+            if emitted_any:
+                yield StreamChunk(delta="", reset=True), provider
             continue
 
     if not any_key_found:

@@ -50,7 +50,10 @@ export default function Dashboard() {
   const firstName = (user?.name ?? user?.email ?? "").split(" ")[0].split("@")[0];
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    // h-full, not flex-1 -- this div's parent (app/page.tsx) isn't a flex
+    // container, so flex-1 here was inert; h-full correctly binds to the
+    // now-bounded (h-screen) ancestor chain so this scrolls in place.
+    <div className="h-full overflow-y-auto">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-10">
         {/* Header */}
         <div className="mb-6 sm:mb-8 lg:mb-10">

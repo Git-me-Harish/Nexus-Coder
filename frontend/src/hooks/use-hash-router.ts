@@ -12,13 +12,15 @@ import { useAuthStore } from "@/stores/authStore";
  *   #/login       -> auth screen (public)
  *   #/dashboard   -> dashboard (protected — requires auth)
  *   #/session     -> workspace with active session (protected)
+ *   #/profile     -> account settings (protected)
+ *   #/reset-password -> choose a new password from an emailed link (public)
  *
  * This hook syncs the browser URL (hash) with the Zustand `view` state.
  * It pushes to history when the view changes (so back/forward works)
  * and listens to `popstate` to update the view when the user navigates.
  */
 
-type Route = "landing" | "auth" | "dashboard" | "session";
+type Route = "landing" | "auth" | "dashboard" | "session" | "profile" | "reset";
 
 const HASH_TO_VIEW: Record<string, Route> = {
   "": "landing",
@@ -26,6 +28,8 @@ const HASH_TO_VIEW: Record<string, Route> = {
   "#/login": "auth",
   "#/dashboard": "dashboard",
   "#/session": "session",
+  "#/profile": "profile",
+  "#/reset-password": "reset",
 };
 
 const VIEW_TO_HASH: Record<Route, string> = {
@@ -33,6 +37,8 @@ const VIEW_TO_HASH: Record<Route, string> = {
   auth: "#/login",
   dashboard: "#/dashboard",
   session: "#/session",
+  profile: "#/profile",
+  reset: "#/reset-password",
 };
 
 function getHash(): string {
